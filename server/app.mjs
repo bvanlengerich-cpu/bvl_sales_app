@@ -5,7 +5,7 @@ import { resolve, relative, sep, extname } from 'node:path';
 import webPush from 'web-push';
 import { audit, publicUser } from './db.mjs';
 import { clearSessionCookie, hashPassword, parseCookies, randomToken, sessionCookie, tokenHash, validPassword, verifyPassword } from './security.mjs';
-import { createMilkFeed } from './milk.mjs';
+import { createMilkFeed, nextMilkRefreshDelay } from './milk.mjs';
 import { registerVisit } from './visits.mjs';
 
 export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentation','truck','building-2','images','wrench','file-text','folder-open','link-2','book-open','globe','phone','mail','video','chart-no-axes-combined','package','settings','users']);
@@ -117,13 +117,13 @@ function messageRow(row) {
   };
 }
 
-export function createApp({ db, config = process.env } = {}) {
+export function createApp({ db, config = process.env, fetcher = fetch, pushClient = webPush } = {}) {
   if (!db) throw new Error('Database required');
   const origin = new URL(config.PUBLIC_ORIGIN || 'http://localhost:3000').origin;
   const secure = origin.startsWith('https:');
-  const milk = createMilkFeed(config, fetch, db);
+  const milk = createMilkFeed(config, fetcher, db);
   const pushEnabled = Boolean(config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY && config.VAPID_SUBJECT);
-  if (pushEnabled) webPush.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
+  if (pushEnabled) pushClient.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
 
   function session(req) {
     const token = parseCookies(req.headers.cookie).bvl_session;
@@ -164,6 +164,20 @@ export function createApp({ db, config = process.env } = {}) {
       ) ORDER BY m.published_at DESC LIMIT 100`).all(user.id, user.role, user.role, user.role, user.id).map(messageRow);
   }
 
+  async function deliverPush(recipients, payloadFor) {
+    if (!pushEnabled) return { sent: 0, failed: 0, configured: false };
+    const results = await Promise.allSettled(recipients.map(async recipient => {
+      const payload = JSON.stringify(payloadFor(recipient));
+      try {
+        await pushClient.sendNotification({ endpoint: recipient.endpoint, keys: { p256dh: recipient.p256dh, auth: recipient.auth } }, payload, { TTL: 86400, timeout: 10000 });
+      } catch (error) {
+        if ([404, 410].includes(error.statusCode)) db.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').run(recipient.endpoint);
+        throw error;
+      }
+    }));
+    return { sent: results.filter(item => item.status === 'fulfilled').length, failed: results.filter(item => item.status === 'rejected').length, configured: true };
+  }
+
   async function sendPush(message) {
     if (!pushEnabled) return { sent: 0, failed: 0, configured: false };
     const recipients = db.prepare(`SELECT p.*,u.language,u.role FROM push_subscriptions p
@@ -172,20 +186,37 @@ export function createApp({ db, config = process.env } = {}) {
         (?='dealer' AND u.role IN ('dealer','admin')) OR
         (?='selected' AND EXISTS (SELECT 1 FROM message_targets t WHERE t.message_id=? AND t.user_id=u.id))
       )`).all(message.audience, message.audience, message.audience, message.audience, message.id);
-    const results = await Promise.allSettled(recipients.map(async recipient => {
-      const payload = JSON.stringify({
+    return deliverPush(recipients, recipient => ({
         title: recipient.language === 'en' ? message.title_en : message.title_de,
         body: recipient.language === 'en' ? message.body_en : message.body_de,
         url: `/#/messages/${message.id}`
-      });
-      try {
-        await webPush.sendNotification({ endpoint: recipient.endpoint, keys: { p256dh: recipient.p256dh, auth: recipient.auth } }, payload, { TTL: 86400, timeout: 10000 });
-      } catch (error) {
-        if ([404, 410].includes(error.statusCode)) db.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').run(recipient.endpoint);
-        throw error;
-      }
     }));
-    return { sent: results.filter(item => item.status === 'fulfilled').length, failed: results.filter(item => item.status === 'rejected').length, configured: true };
+  }
+
+  async function sendMilkPricePush(price) {
+    if (!pushEnabled) return { sent: 0, failed: 0, configured: false };
+    const recipients = db.prepare(`SELECT p.*,u.language FROM push_subscriptions p
+      JOIN users u ON u.id=p.user_id WHERE u.active=1`).all();
+    const period = `${price.period.slice(5, 7)}/${price.period.slice(0, 4)}`;
+    return deliverPush(recipients, recipient => ({
+      title: recipient.language === 'en' ? 'German milk price' : 'Milchpreis Deutschland',
+      body: recipient.language === 'en'
+        ? `Weekly update: ${price.value.toFixed(2)} ct/kg · monthly value ${period}.`
+        : `Wochenupdate: ${price.value.toFixed(2).replace('.', ',')} ct/kg · Monatswert ${period}.`,
+      url: '/#/home'
+    }));
+  }
+
+  let milkRefreshInFlight;
+  async function refreshMilkAndNotify() {
+    if (milkRefreshInFlight) return milkRefreshInFlight;
+    milkRefreshInFlight = (async () => {
+      if (nextMilkRefreshDelay(milk.current().fetchedAt) > 0) return { ok: true, skipped: true, push: null };
+      const result = await milk.refresh();
+      return result.ok ? { ...result, push: await sendMilkPricePush(result.price) } : { ...result, push: null };
+    })();
+    try { return await milkRefreshInFlight; }
+    finally { milkRefreshInFlight = null; }
   }
 
   async function api(req, res, pathname) {
@@ -464,5 +495,5 @@ export function createApp({ db, config = process.env } = {}) {
       json(res, error.status || 500, { error: error.status ? error.message : 'Interner Fehler' });
     }
   });
-  return { server, milk };
+  return { server, milk, refreshMilkAndNotify };
 }

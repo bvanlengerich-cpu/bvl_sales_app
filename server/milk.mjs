@@ -44,13 +44,13 @@ export function createMilkFeed(config = process.env, fetcher = fetch, db = null)
     const records = results.filter(result => result.status === 'fulfilled').flatMap(result => result.value);
     if (!records.length) {
       lastError = results.find(result => result.status === 'rejected')?.reason?.message || 'No German raw milk price';
-      return;
+      return { ok: false, reason: lastError };
     }
     records.sort((a, b) => b.endDate.localeCompare(a.endDate));
     const next = records[0];
     if (latest && next.endDate < latest.endDate) {
       lastError = 'Most recent period missing from EU API';
-      return;
+      return { ok: false, reason: lastError };
     }
     const nextFetchedAt = new Date().toISOString();
     if (db) db.prepare(`INSERT INTO milk_cache (id,value_ct_per_kg,period,end_date,fetched_at) VALUES (1,?,?,?,?)
@@ -60,6 +60,7 @@ export function createMilkFeed(config = process.env, fetcher = fetch, db = null)
     latest = next;
     fetchedAt = nextFetchedAt;
     lastError = null;
+    return { ok: true, price: current() };
   }
 
   function current() {

@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'bvl-sales-shell-v6';
-const SHELL_FILES = ['/', '/index.html', '/styles.css?v=6', '/app.js?v=5', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const SHELL_CACHE = 'bvl-sales-shell-v7';
+const SHELL_FILES = ['/', '/index.html', '/styles.css?v=6', '/app.js?v=6', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL_FILES)));
@@ -26,7 +26,7 @@ self.addEventListener('fetch', event => {
 self.addEventListener('push', event => {
   let message = {};
   try { message = event.data?.json() || {}; } catch { message = { title: 'BvL Sales', body: event.data?.text() || '' }; }
-  const url = typeof message.url === 'string' && message.url.startsWith('/#/messages/') ? message.url : '/#/messages';
+  const url = message.url === '/#/home' || (typeof message.url === 'string' && message.url.startsWith('/#/messages/')) ? message.url : '/#/messages';
   event.waitUntil(self.registration.showNotification(message.title || 'BvL Sales', {
     body: message.body || '', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png',
     data: { url }, tag: `bvl-${url}`, renotify: false
