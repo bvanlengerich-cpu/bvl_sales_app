@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "BvL Sales",
+  "short_name": "BvL Sales",
+  "description": "Vertriebswerkzeuge und Unterlagen der BvL Gruppe",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f7",
+  "theme_color": "#52728f",
+  "orientation": "any",
+  "lang": "de",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
