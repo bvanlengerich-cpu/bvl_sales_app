@@ -37,5 +37,5 @@ export function clearSessionCookie(secure) {
 }
 
 export function validPassword(password) {
-  return typeof password === 'string' && password.length >= 12 && password.length <= 256;
+  return typeof password === 'string' && password.length >= 6 && password.length <= 256;
 }

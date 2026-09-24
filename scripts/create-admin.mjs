@@ -17,7 +17,7 @@ if (!password) {
     console.error('Set ADMIN_INITIAL_PASSWORD or run in an interactive terminal.');
     process.exit(1);
   }
-  output.write('Initial password (min. 12 characters, hidden): ');
+  output.write('Initial password (min. 6 characters, hidden): ');
   const silentOutput = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
   const terminal = createInterface({ input, output: silentOutput, terminal: true });
   password = await terminal.question('');
@@ -25,7 +25,7 @@ if (!password) {
   output.write('\n');
 }
 if (!validPassword(password)) {
-  console.error('Password must have 12-256 characters.');
+  console.error('Password must have 6-256 characters.');
   process.exit(1);
 }
 const db = openDatabase();

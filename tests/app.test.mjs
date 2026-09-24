@@ -3,10 +3,17 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { openDatabase } from '../server/db.mjs';
 import { createApp } from '../server/app.mjs';
-import { hashPassword } from '../server/security.mjs';
+import { hashPassword, validPassword } from '../server/security.mjs';
 
 const ORIGIN = 'http://localhost:3000';
 const PASSWORD = 'A-strong-test-password-2026';
+
+test('passwords require 6 to 256 characters', () => {
+  assert.equal(validPassword('12345'), false);
+  assert.equal(validPassword('123456'), true);
+  assert.equal(validPassword('x'.repeat(256)), true);
+  assert.equal(validPassword('x'.repeat(257)), false);
+});
 
 test('login, access rules, admin editing and messages', async () => {
   const db = openDatabase(':memory:');
@@ -58,6 +65,28 @@ test('login, access rules, admin editing and messages', async () => {
     assert.equal((await request('/api/portal', { auth: admin })).payload.visitorCount, 1);
     assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 0, selfWeeks: 7 }, auth: admin })).status, 400);
     assert.equal((await request('/api/admin/users', { method: 'POST', data: { username: 'bad', displayName: 'Bad', role: 'staff', password: 'short' }, auth: admin })).status, 400);
+    const sixUser = await request('/api/admin/users', { method: 'POST', data: {
+      username: 'six', displayName: 'Six', role: 'staff', password: '123456'
+    }, auth: admin });
+    assert.equal(sixUser.status, 201);
+    const sixLogin = await request('/api/login', { method: 'POST', data: { username: 'six', password: '123456' } });
+    assert.equal(sixLogin.status, 200);
+    const sixAuth = { cookie: sixLogin.cookie, csrfToken: sixLogin.payload.csrfToken };
+    assert.equal((await request('/api/profile/password', { method: 'POST', data: {
+      currentPassword: '123456', newPassword: 'short'
+    }, auth: sixAuth })).status, 400);
+    assert.equal((await request('/api/profile/password', { method: 'POST', data: {
+      currentPassword: '123456', newPassword: 'abcdef'
+    }, auth: sixAuth })).status, 200);
+    assert.equal((await request(`/api/admin/users/${sixUser.payload.user.id}`, { method: 'PUT', data: {
+      displayName: 'Six', role: 'staff', active: true, password: 'short'
+    }, auth: admin })).status, 400);
+    assert.equal((await request(`/api/admin/users/${sixUser.payload.user.id}`, { method: 'PUT', data: {
+      displayName: 'Six', role: 'staff', active: true, password: '654321'
+    }, auth: admin })).status, 200);
+    assert.equal((await request('/api/login', { method: 'POST', data: {
+      username: 'six', password: '654321'
+    } })).status, 200);
 
     const created = await request('/api/admin/links', { method: 'POST', auth: admin, data: {
       titleDe: 'Nur intern', titleEn: 'Staff only', icon: 'file-text', url: 'https://example.org',

@@ -25,7 +25,7 @@ pnpm admin:create admin 'BvL Administration'
 pnpm start
 ```
 
-Beim Erstellen des ersten Admins wird das Passwort verdeckt abgefragt. Es muss mindestens zwölf Zeichen haben. Die App ist dann auf <http://localhost:3000> erreichbar. Alle weiteren Benutzer legt der Admin in der Oberfläche an; die Passwörter aus dem HTML-Prototyp werden absichtlich **nicht** übernommen. `pnpm test` führt die Backend- und Milchpreis-Tests aus. `pnpm backup` erstellt eine konsistente SQLite-Kopie im ignorierten Ordner `backups/`.
+Beim Erstellen des ersten Admins wird das Passwort verdeckt abgefragt. Es muss mindestens sechs Zeichen haben. Die App ist dann auf <http://localhost:3000> erreichbar. Alle weiteren Benutzer legt der Admin in der Oberfläche an; die Passwörter aus dem HTML-Prototyp werden absichtlich **nicht** übernommen. `pnpm test` führt die Backend- und Milchpreis-Tests aus. `pnpm backup` erstellt eine konsistente SQLite-Kopie im ignorierten Ordner `backups/`.
 
 Der lokale Server bindet nur `127.0.0.1`. Für Tests auf einem echten iPhone ist später eine HTTPS-URL erforderlich; `localhost` auf dem PC ist vom iPhone aus nicht erreichbar. Ohne HTTPS funktionieren auf dem iPhone weder die produktive PWA-Installation noch Web Push zuverlässig.
 

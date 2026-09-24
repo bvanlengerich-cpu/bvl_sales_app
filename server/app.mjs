@@ -249,7 +249,7 @@ export function createApp({ db, config = process.env } = {}) {
     if (method === 'POST' && pathname === '/api/profile/password') {
       const data = await body(req);
       need(verifyPassword(data.currentPassword || '', user.password_hash), 400, 'Aktuelles Passwort ungültig');
-      need(validPassword(data.newPassword), 400, 'Neues Passwort muss 12 bis 256 Zeichen haben');
+      need(validPassword(data.newPassword), 400, 'Neues Passwort muss 6 bis 256 Zeichen haben');
       db.prepare('UPDATE users SET password_hash=?,updated_at=? WHERE id=?').run(hashPassword(data.newPassword), now(), user.id);
       db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').run(user.id, user.session_hash);
       audit(db, user.id, 'password.change', user.id);
@@ -369,7 +369,7 @@ export function createApp({ db, config = process.env } = {}) {
       if (target.role === 'admin' && (data.role !== 'admin' || !active)) {
         need(db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1").get().n > 1, 400, 'Letzter Admin darf nicht deaktiviert werden');
       }
-      if (data.password !== undefined) need(validPassword(data.password), 400, 'Passwort muss 12 bis 256 Zeichen haben');
+      if (data.password !== undefined) need(validPassword(data.password), 400, 'Passwort muss 6 bis 256 Zeichen haben');
       db.prepare(`UPDATE users SET display_name=?,role=?,can_edit_lead_times=?,active=?,password_hash=?,updated_at=? WHERE id=?`)
         .run(displayName, data.role, flag(data.canEditLeadTimes) ? 1 : 0, active,
           data.password === undefined ? target.password_hash : hashPassword(data.password), now(), target.id);
