@@ -1,4 +1,5 @@
 import { icon, editableIcons } from './icons.js';
+import { externalLinkDestination } from './external-links.js';
 
 const root = document.getElementById('app');
 const toastNode = document.getElementById('toast');
@@ -53,6 +54,8 @@ const localDate = iso => iso ? new Intl.DateTimeFormat(state.language === 'en' ?
 const formatWeeks = value => value == null ? '—' : `${value} ${state.language === 'de' && value === 1 ? 'Woche' : state.language === 'en' && value === 1 ? 'week' : t('weeks')}`;
 const initials = name => (name || '').trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || '').join('');
 const greeting = () => { const hour = new Date().getHours(); return t(hour < 11 ? 'morning' : hour < 18 ? 'day' : 'evening'); };
+const isIOSStandalone = () => (/iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  && (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true);
 let toastTimer;
 
 function toast(message, error = false) {
@@ -61,6 +64,11 @@ function toast(message, error = false) {
   toastNode.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toastNode.hidden = true; }, 4500);
+}
+
+function externalLinkAttributes(url) {
+  const destination = externalLinkDestination(url, isIOSStandalone());
+  return `href="${esc(destination.href)}"${destination.newTab ? ' target="_blank" rel="noopener noreferrer"' : ''}`;
 }
 
 async function api(path, { method = 'GET', data } = {}) {
@@ -156,7 +164,7 @@ function renderTool(link, childCount) {
     <span class="tile-meta">${esc(desc(link) || (isCategory ? `${childCount} ${t('items')}` : t('open')))} ${icon(isCategory ? 'chevron-right' : 'external-link')}</span></span>${link.featured ? `<span class="tile-arrow">${icon('arrow-up-right')}</span>` : ''}`;
   return isCategory
     ? `<button type="button" class="${className}" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>`
-    : `<a class="${className}" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+    : `<a class="${className}" ${externalLinkAttributes(link.url)}>${inner}</a>`;
 }
 
 function renderHome() {
@@ -182,7 +190,7 @@ function renderCategory() {
     <div class="category-links">${children.length ? children.map(link => {
       const nested = !link.url;
       const inner = `<span class="row-icon">${icon(link.icon)}</span><span><strong>${esc(text(link))}</strong>${desc(link) ? `<small>${esc(desc(link))}</small>` : ''}</span>${icon(nested ? 'chevron-right' : 'external-link')}`;
-      return nested ? `<button class="category-row" type="button" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>` : `<a class="category-row" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+      return nested ? `<button class="category-row" type="button" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>` : `<a class="category-row" ${externalLinkAttributes(link.url)}>${inner}</a>`;
     }).join('') : `<div class="empty-state">${esc(t('notSet'))}</div>`}</div></main>`;
 }
 
