@@ -65,6 +65,8 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
       id INTEGER PRIMARY KEY CHECK (id = 1),
       towed_weeks INTEGER CHECK (towed_weeks BETWEEN 1 AND 52),
       self_weeks INTEGER CHECK (self_weeks BETWEEN 1 AND 52),
+      v_bio_fix_weeks INTEGER CHECK (v_bio_fix_weeks BETWEEN 1 AND 52),
+      v_load_weeks INTEGER CHECK (v_load_weeks BETWEEN 1 AND 52),
       updated_at TEXT,
       updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
     );
@@ -116,6 +118,13 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
       created_at TEXT NOT NULL
     );
   `);
+  const leadColumns = new Set(db.prepare('PRAGMA table_info(lead_times)').all().map(column => column.name));
+  if (!leadColumns.has('v_bio_fix_weeks')) {
+    db.exec('ALTER TABLE lead_times ADD COLUMN v_bio_fix_weeks INTEGER CHECK (v_bio_fix_weeks BETWEEN 1 AND 52)');
+  }
+  if (!leadColumns.has('v_load_weeks')) {
+    db.exec('ALTER TABLE lead_times ADD COLUMN v_load_weeks INTEGER CHECK (v_load_weeks BETWEEN 1 AND 52)');
+  }
   seedLinks(db);
   return db;
 }

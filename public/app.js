@@ -17,7 +17,7 @@ const labels = {
   de: {
     signIn: 'Anmelden', signInTitle: 'BvL Sales', signInIntro: 'Ihre Werkzeuge und Unterlagen an einem Ort.', username: 'Benutzername', password: 'Passwort',
     contactAdmin: 'Zugang oder Passwort vergessen? Bitte wenden Sie sich an Ihre BvL-Administration.', installTitle: 'Als App auf dem iPhone nutzen', install1: 'In Safari das Teilen-Symbol antippen.', install2: '„Zum Home-Bildschirm“ auswählen.', install3: 'Mit „Hinzufügen“ bestätigen.', dismiss: 'Schließen', install: 'App installieren',
-    morning: 'Guten Morgen', day: 'Guten Tag', evening: 'Guten Abend', milkPrice: 'Milchpreis Deutschland', monthlyPrice: 'Monatswert', priceUnavailable: 'Derzeit nicht verfügbar', priceAutoWeekly: 'Automatischer Abruf: wöchentlich', priceUpdated: 'Aktualisiert', priceLastSuccess: 'Letzter erfolgreicher Abruf', priceStale: 'Abruf derzeit nicht möglich', priceNotUpdated: 'Noch nicht aktualisiert', leadTimes: 'Aktuelle Lieferzeiten', towed: 'Gezogene Maschinen', self: 'Selbstfahrer', weeks: 'Wochen', notSet: 'Noch nicht gepflegt', updated: 'Stand',
+    morning: 'Guten Morgen', day: 'Guten Tag', evening: 'Guten Abend', milkPrice: 'Milchpreis Deutschland', monthlyPrice: 'Monatswert', priceUnavailable: 'Derzeit nicht verfügbar', priceAutoWeekly: 'Automatischer Abruf: wöchentlich', priceUpdated: 'Aktualisiert', priceLastSuccess: 'Letzter erfolgreicher Abruf', priceStale: 'Abruf derzeit nicht möglich', priceNotUpdated: 'Noch nicht aktualisiert', leadTimes: 'Aktuelle Lieferzeiten', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'Wochen', notSet: 'Noch nicht gepflegt', updated: 'Stand',
     tools: 'Vertriebswerkzeuge', items: 'Inhalte', quick: 'Schnellzugriff', open: 'Öffnen', back: 'Zurück', offline: 'Offline – externe Links und aktuelle Daten benötigen Internet.',
     home: 'Start', messages: 'Mitteilungen', profile: 'Profil', admin: 'Administration', overview: 'Übersicht', links: 'Links', users: 'Benutzer', delivery: 'Lieferzeiten', settings: 'Einstellungen', visitors: 'Besucher', visitExplanation: 'Gezählte App-Besuche; nach 30 Minuten Inaktivität beginnt ein neuer Besuch.',
     noMessages: 'Noch keine Mitteilungen vorhanden.', unread: 'Ungelesen', markRead: 'Als gelesen markieren', role: 'Rolle', language: 'Sprache', push: 'Push-Benachrichtigungen', pushIntro: 'Erhalten Sie wichtige BvL-Mitteilungen und wöchentliche Milchpreis-Updates direkt auf diesem Gerät.', pushEnable: 'Push aktivieren', pushDisable: 'Push auf diesem Gerät deaktivieren', pushMissing: 'Push ist noch nicht eingerichtet. In Coolify müssen VAPID-Schlüssel hinterlegt werden.', pushIos: 'Auf dem iPhone funktioniert Push erst nach „Zum Home-Bildschirm“ und dem Öffnen der installierten App.',
@@ -32,7 +32,7 @@ const labels = {
   en: {
     signIn: 'Sign in', signInTitle: 'BvL Sales', signInIntro: 'Your tools and documents in one place.', username: 'Username', password: 'Password',
     contactAdmin: 'Need access or forgot your password? Please contact your BvL administrator.', installTitle: 'Use as an app on iPhone', install1: 'Tap Share in Safari.', install2: 'Choose “Add to Home Screen”.', install3: 'Confirm with “Add”.', dismiss: 'Dismiss', install: 'Install app',
-    morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', milkPrice: 'German milk price', monthlyPrice: 'Monthly price', priceUnavailable: 'Currently unavailable', priceAutoWeekly: 'Automatic check: weekly', priceUpdated: 'Updated', priceLastSuccess: 'Last successful check', priceStale: 'Source currently unavailable', priceNotUpdated: 'Not updated yet', leadTimes: 'Current lead times', towed: 'Trailed machines', self: 'Self-propelled', weeks: 'weeks', notSet: 'Not set yet', updated: 'Updated',
+    morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', milkPrice: 'German milk price', monthlyPrice: 'Monthly price', priceUnavailable: 'Currently unavailable', priceAutoWeekly: 'Automatic check: weekly', priceUpdated: 'Updated', priceLastSuccess: 'Last successful check', priceStale: 'Source currently unavailable', priceNotUpdated: 'Not updated yet', leadTimes: 'Current lead times', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'weeks', notSet: 'Not set yet', updated: 'Updated',
     tools: 'Sales tools', items: 'items', quick: 'Quick access', open: 'Open', back: 'Back', offline: 'Offline – external links and current data need internet.',
     home: 'Home', messages: 'Messages', profile: 'Profile', admin: 'Administration', overview: 'Overview', links: 'Links', users: 'Users', delivery: 'Lead times', settings: 'Settings', visitors: 'Visitors', visitExplanation: 'Counted app visits; a new visit begins after 30 minutes of inactivity.',
     noMessages: 'No messages yet.', unread: 'Unread', markRead: 'Mark as read', role: 'Role', language: 'Language', push: 'Push notifications', pushIntro: 'Receive BvL messages and weekly milk-price updates directly on this device.', pushEnable: 'Enable push', pushDisable: 'Disable push on this device', pushMissing: 'Push is not configured yet. VAPID keys must be added in Coolify.', pushIos: 'On iPhone, push requires adding the app to the Home Screen and opening the installed app.',
@@ -150,9 +150,13 @@ function renderMilk() {
 }
 
 function renderLeadTimes(lead = state.portal?.leadTimes) {
+  const values = [
+    ['towed', lead?.towedWeeks], ['self', lead?.selfWeeks],
+    ['vBioFix', lead?.vBioFixWeeks], ['vLoad', lead?.vLoadWeeks]
+  ];
   return `<section class="lead-card" aria-label="${esc(t('leadTimes'))}">
     <h2 class="lead-title">${icon('clock-3')} ${esc(t('leadTimes'))}</h2>
-    <div class="lead-values"><div><span>${esc(t('towed'))}</span><strong>${esc(formatWeeks(lead?.towedWeeks))}</strong></div><div><span>${esc(t('self'))}</span><strong>${esc(formatWeeks(lead?.selfWeeks))}</strong></div></div>
+    <div class="lead-values">${values.map(([label, weeks]) => `<div class="lead-value"><span>${esc(t(label))}</span><strong>${esc(formatWeeks(weeks))}</strong></div>`).join('')}</div>
     ${lead?.updatedAt ? `<p class="lead-updated">${esc(t('updated'))}: ${esc(localDate(lead.updatedAt))}</p>` : `<p class="lead-updated">${esc(t('notSet'))}</p>`}
   </section>`;
 }
@@ -276,9 +280,12 @@ function renderAdminLinks() {
 
 function renderDelivery() {
   const lead = state.portal?.leadTimes || {};
+  const fields = [
+    ['towed', 'towedWeeks', 'truck'], ['self', 'selfWeeks', 'settings'],
+    ['vBioFix', 'vBioFixWeeks', 'leaf'], ['vLoad', 'vLoadWeeks', 'package']
+  ];
   return `${adminHeading(t('delivery'), t('deliveryIntro'))}<form data-form="delivery"><div class="delivery-form">
-    <div class="delivery-field"><span class="record-icon">${icon('truck')}</span><h2>${esc(t('towed'))}</h2><label class="field">${esc(t('weeks'))}<input name="towedWeeks" type="number" min="1" max="52" step="1" value="${lead.towedWeeks ?? ''}" required></label></div>
-    <div class="delivery-field"><span class="record-icon">${icon('settings')}</span><h2>${esc(t('self'))}</h2><label class="field">${esc(t('weeks'))}<input name="selfWeeks" type="number" min="1" max="52" step="1" value="${lead.selfWeeks ?? ''}" required></label></div>
+    ${fields.map(([label, name, symbol]) => `<div class="delivery-field"><span class="record-icon">${icon(symbol)}</span><h2>${esc(t(label))}</h2><label class="field">${esc(t('weeks'))}<input name="${name}" type="number" min="1" max="52" step="1" value="${lead[name] ?? ''}" required></label></div>`).join('')}
     </div><div class="delivery-actions"><button class="button primary" type="submit">${esc(t('saveDelivery'))}</button>${lead.updatedAt ? `<span class="status-line">${esc(t('updated'))}: ${esc(localDate(lead.updatedAt))}</span>` : ''}</div></form>
     <div class="delivery-note">${icon('shield-check')}<span>${esc(t('deliveryNote'))}</span></div>`;
 }
@@ -397,8 +404,15 @@ async function submitForm(form, submitter) {
     return;
   }
   if (kind === 'delivery') {
-    const result = await api('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: Number(values.get('towedWeeks')), selfWeeks: Number(values.get('selfWeeks')) } });
-    state.portal.leadTimes = { towedWeeks: result.leadTimes.towed_weeks, selfWeeks: result.leadTimes.self_weeks, updatedAt: result.leadTimes.updated_at };
+    const result = await api('/api/admin/lead-times', { method: 'PUT', data: {
+      towedWeeks: Number(values.get('towedWeeks')), selfWeeks: Number(values.get('selfWeeks')),
+      vBioFixWeeks: Number(values.get('vBioFixWeeks')), vLoadWeeks: Number(values.get('vLoadWeeks'))
+    } });
+    state.portal.leadTimes = {
+      towedWeeks: result.leadTimes.towed_weeks, selfWeeks: result.leadTimes.self_weeks,
+      vBioFixWeeks: result.leadTimes.v_bio_fix_weeks, vLoadWeeks: result.leadTimes.v_load_weeks,
+      updatedAt: result.leadTimes.updated_at
+    };
     toast(t('saved')); render(); return;
   }
   if (kind === 'link') {

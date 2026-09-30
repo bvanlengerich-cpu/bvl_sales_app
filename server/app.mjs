@@ -267,7 +267,11 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       const visitorCount = registerVisit(db, user.session_hash).total;
       return json(res, 200, {
         links,
-        leadTimes: { towedWeeks: lead.towed_weeks, selfWeeks: lead.self_weeks, updatedAt: lead.updated_at },
+        leadTimes: {
+          towedWeeks: lead.towed_weeks, selfWeeks: lead.self_weeks,
+          vBioFixWeeks: lead.v_bio_fix_weeks, vLoadWeeks: lead.v_load_weeks,
+          updatedAt: lead.updated_at
+        },
         milkPrice: milk.current(), messages, visitorCount
       });
     }
@@ -318,10 +322,10 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     if (method === 'PUT' && pathname === '/api/admin/lead-times') {
       need(user.role === 'admin' || user.can_edit_lead_times);
       const data = await body(req);
-      need(Number.isInteger(data.towedWeeks) && data.towedWeeks >= 1 && data.towedWeeks <= 52 &&
-        Number.isInteger(data.selfWeeks) && data.selfWeeks >= 1 && data.selfWeeks <= 52, 400, 'Bitte ganze Wochenwerte von 1 bis 52 eingeben');
-      db.prepare('UPDATE lead_times SET towed_weeks=?,self_weeks=?,updated_at=?,updated_by=? WHERE id=1')
-        .run(data.towedWeeks, data.selfWeeks, now(), user.id);
+      need(['towedWeeks', 'selfWeeks', 'vBioFixWeeks', 'vLoadWeeks'].every(key =>
+        Number.isInteger(data[key]) && data[key] >= 1 && data[key] <= 52), 400, 'Bitte für alle vier Produkte ganze Wochenwerte von 1 bis 52 eingeben');
+      db.prepare('UPDATE lead_times SET towed_weeks=?,self_weeks=?,v_bio_fix_weeks=?,v_load_weeks=?,updated_at=?,updated_by=? WHERE id=1')
+        .run(data.towedWeeks, data.selfWeeks, data.vBioFixWeeks, data.vLoadWeeks, now(), user.id);
       audit(db, user.id, 'lead_times.update', '1');
       return json(res, 200, { leadTimes: db.prepare('SELECT * FROM lead_times WHERE id=1').get() });
     }

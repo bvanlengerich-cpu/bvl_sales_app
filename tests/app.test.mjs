@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openDatabase } from '../server/db.mjs';
 import { createApp } from '../server/app.mjs';
 import { hashPassword, validPassword } from '../server/security.mjs';
@@ -13,6 +17,35 @@ test('passwords require 6 to 256 characters', () => {
   assert.equal(validPassword('123456'), true);
   assert.equal(validPassword('x'.repeat(256)), true);
   assert.equal(validPassword('x'.repeat(257)), false);
+});
+
+test('existing delivery times survive the four-product database migration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bvl-lead-migration-'));
+  const file = join(directory, 'sales.sqlite');
+  try {
+    const legacy = new DatabaseSync(file);
+    legacy.exec(`CREATE TABLE lead_times (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      towed_weeks INTEGER CHECK (towed_weeks BETWEEN 1 AND 52),
+      self_weeks INTEGER CHECK (self_weeks BETWEEN 1 AND 52),
+      updated_at TEXT,
+      updated_by TEXT
+    );
+    INSERT INTO lead_times (id,towed_weeks,self_weeks,updated_at) VALUES (1,20,32,'2026-09-26T12:00:00.000Z');`);
+    legacy.close();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const db = openDatabase(file);
+      const lead = db.prepare('SELECT * FROM lead_times WHERE id=1').get();
+      assert.equal(lead.towed_weeks, 20);
+      assert.equal(lead.self_weeks, 32);
+      assert.equal(lead.v_bio_fix_weeks, null);
+      assert.equal(lead.v_load_weeks, null);
+      assert.equal(lead.updated_at, '2026-09-26T12:00:00.000Z');
+      db.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('login, access rules, admin editing and messages', async () => {
@@ -56,14 +89,17 @@ test('login, access rules, admin editing and messages', async () => {
     const admin = await login('admin');
     assert.equal((await request('/api/session', { auth: admin })).payload.user.id, adminId);
     assert.equal((await request('/api/admin/users', { auth: admin })).status, 200);
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 3, selfWeeks: 7 }, auth: admin })).status, 200);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 3, selfWeeks: 7, vBioFixWeeks: 11, vLoadWeeks: 15 }, auth: admin })).status, 200);
     const firstPortal = (await request('/api/portal', { auth: admin })).payload;
     const lead = firstPortal.leadTimes;
     assert.equal(lead.towedWeeks, 3);
     assert.equal(lead.selfWeeks, 7);
+    assert.equal(lead.vBioFixWeeks, 11);
+    assert.equal(lead.vLoadWeeks, 15);
     assert.equal(firstPortal.visitorCount, 1);
     assert.equal((await request('/api/portal', { auth: admin })).payload.visitorCount, 1);
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 0, selfWeeks: 7 }, auth: admin })).status, 400);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 0, selfWeeks: 7, vBioFixWeeks: 11, vLoadWeeks: 15 }, auth: admin })).status, 400);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 3, selfWeeks: 7, vBioFixWeeks: 11 }, auth: admin })).status, 400);
     assert.equal((await request('/api/admin/users', { method: 'POST', data: { username: 'bad', displayName: 'Bad', role: 'staff', password: 'short' }, auth: admin })).status, 400);
     const sixUser = await request('/api/admin/users', { method: 'POST', data: {
       username: 'six', displayName: 'Six', role: 'staff', password: '123456'
@@ -100,16 +136,18 @@ test('login, access rules, admin editing and messages', async () => {
 
     const staff = await login('staff');
     assert.equal((await request('/api/admin/users', { auth: staff })).status, 403);
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8 }, auth: staff })).status, 200);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8, vBioFixWeeks: 12, vLoadWeeks: 16 }, auth: staff })).status, 200);
     const staffPortal = (await request('/api/portal', { auth: staff })).payload;
+    assert.equal(staffPortal.leadTimes.vBioFixWeeks, 12);
+    assert.equal(staffPortal.leadTimes.vLoadWeeks, 16);
     assert.equal(staffPortal.links.some(link => link.id === internalLinkId), true);
     assert.equal(staffPortal.visitorCount, 2);
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8 }, auth: staff, origin: 'https://evil.example' })).status, 403);
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8 }, auth: { ...staff, csrfToken: 'invalid' } })).status, 403);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8, vBioFixWeeks: 12, vLoadWeeks: 16 }, auth: staff, origin: 'https://evil.example' })).status, 403);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8, vBioFixWeeks: 12, vLoadWeeks: 16 }, auth: { ...staff, csrfToken: 'invalid' } })).status, 403);
     assert.equal((await request('/api/session', { auth: staff })).payload.user.id, staffId);
 
     const dealer = await login('dealer');
-    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8 }, auth: dealer })).status, 403);
+    assert.equal((await request('/api/admin/lead-times', { method: 'PUT', data: { towedWeeks: 4, selfWeeks: 8, vBioFixWeeks: 12, vLoadWeeks: 16 }, auth: dealer })).status, 403);
     const dealerPortal = (await request('/api/portal', { auth: dealer })).payload;
     assert.equal(dealerPortal.links.some(link => link.id === internalLinkId), false);
     assert.equal(dealerPortal.visitorCount, 3);

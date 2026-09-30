@@ -128,7 +128,9 @@ svg.icon { display: inline-block; flex: 0 0 auto; vertical-align: middle; }
 .lead-title { display: flex; align-items: center; gap: 7px; margin: 0 0 12px; color: var(--metal-dark); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .lead-title .icon { width: 15px; height: 15px; }
 .lead-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.lead-values > div + div { border-left: 1px solid var(--line); padding-left: 12px; }
+.lead-value { min-width: 0; padding: 0 12px 0 0; }
+.lead-value:nth-child(even) { border-left: 1px solid var(--line); padding: 0 0 0 12px; }
+.lead-value:nth-child(n+3) { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
 .lead-values span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 12px; line-height: 1.25; }
 .lead-values strong { display: block; color: var(--ink); font-size: 17px; line-height: 1.15; }
 .lead-updated { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
