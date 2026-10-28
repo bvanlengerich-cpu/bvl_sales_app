@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { resolve, relative, sep, extname } from 'node:path';
 import webPush from 'web-push';
 import { audit, publicUser } from './db.mjs';
@@ -12,6 +12,8 @@ export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentatio
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const PUBLIC_DIR = resolve(import.meta.dirname, '../public');
+const MARKET_ROW_KEYS = ['alt', 'cows', 'excelRow', 'farms', 'name', 'share50', 'sourcePotential', 'state', 'used', 'years'];
+const MARKET_UPLOAD_LIMIT = 1024 * 1024;
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -28,20 +30,49 @@ function json(res, status, data, headers = {}) {
   res.end(JSON.stringify(data));
 }
 
-async function body(req) {
+async function body(req, maxBytes = 65536) {
   if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw new HttpError(415, 'JSON erwartet');
-  let raw = '';
+  const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 65536) throw new HttpError(413, 'Anfrage zu groß');
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new HttpError(413, 'Anfrage zu groß');
+    chunks.push(chunk);
   }
   try {
-    const parsed = JSON.parse(raw || '{}');
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') bad('Ungültiges JSON');
     return parsed;
   } catch (error) {
     if (error instanceof HttpError) throw error;
     bad('Ungültiges JSON');
+  }
+}
+
+function validateMarketRows(rows) {
+  if (!Array.isArray(rows) || rows.length !== 398) bad('Es werden genau 398 Marktgebiete erwartet');
+  const excelRows = new Set();
+  for (const row of rows) {
+    if (!row || Array.isArray(row) || typeof row !== 'object' ||
+      Object.keys(row).sort().join(',') !== MARKET_ROW_KEYS.join(',')) bad('Ungültige Felder in den Marktdaten');
+    if (typeof row.state !== 'string' || !row.state.trim() || row.state.length > 160 ||
+      typeof row.name !== 'string' || !row.name.trim() || row.name.length > 160) bad('Ungültiger Gebietsname');
+    if (!Number.isInteger(row.excelRow) || row.excelRow < 3 || row.excelRow > 418 || excelRows.has(row.excelRow)) {
+      bad('Excel-Zeilennummern müssen eindeutig und zwischen 3 und 418 sein');
+    }
+    excelRows.add(row.excelRow);
+    for (const key of ['farms', 'cows', 'share50', 'sourcePotential']) {
+      if (row[key] !== null && (typeof row[key] !== 'number' || !Number.isFinite(row[key]) || row[key] < 0 || row[key] > 1e9)) {
+        bad(`Ungültiger Wert für ${key}`);
+      }
+    }
+    for (const key of ['alt', 'years', 'used']) {
+      if (typeof row[key] !== 'number' || !Number.isFinite(row[key]) || row[key] < 0 || row[key] > 100) bad(`Ungültiger Wert für ${key}`);
+    }
+    if (row.years < 1) bad('Ungültiger Wert für years');
+    for (const key of ['share50', 'alt', 'used']) {
+      if (row[key] !== null && row[key] > 1) bad(`Ungültiger Anteil für ${key}`);
+    }
   }
 }
 
@@ -124,6 +155,86 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
   const milk = createMilkFeed(config, fetcher, db);
   const pushEnabled = Boolean(config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY && config.VAPID_SUBJECT);
   if (pushEnabled) pushClient.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
+  const marketDataDir = resolve(config.DATA_DIR || './data');
+  const marketDataFile = resolve(marketDataDir, 'market-data.json');
+  const bundledMarketDataFile = resolve(import.meta.dirname, 'market-data.json');
+  const marketFiles = new Map([
+    ['/api/market/de', bundledMarketDataFile],
+    ['/api/market/geo', resolve(import.meta.dirname, 'market-geo.json')]
+  ]);
+  const marketFileCache = new Map();
+
+  async function readMarketData() {
+    let content, source = 'imported';
+    try { content = await readFile(marketDataFile); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      source = 'bundled';
+      try { content = await readFile(bundledMarketDataFile); }
+      catch (bundledError) {
+        if (bundledError.code === 'ENOENT') throw new HttpError(404, 'Marktdaten sind nicht verfügbar');
+        throw bundledError;
+      }
+    }
+    let rows;
+    try {
+      rows = JSON.parse(content.toString('utf8'));
+      validateMarketRows(rows);
+    } catch {
+      throw new HttpError(500, source === 'imported' ? 'Gespeicherte Marktdaten sind beschädigt' : 'Mitgelieferte Marktdaten sind beschädigt');
+    }
+    return { content, source, rowCount: rows.length };
+  }
+
+  async function marketFile(res, pathname) {
+    let contentPromise = marketFileCache.get(pathname);
+    if (!contentPromise) {
+      contentPromise = pathname === '/api/market/de'
+        ? readMarketData().then(result => result.content)
+        : readFile(marketFiles.get(pathname));
+      marketFileCache.set(pathname, contentPromise);
+    }
+    let content;
+    try { content = await contentPromise; }
+    catch (error) {
+      marketFileCache.delete(pathname);
+      throw error;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Content-Length': content.length
+    });
+    res.end(content);
+  }
+
+  async function marketDataStatus() {
+    let data;
+    try { data = await readMarketData(); }
+    catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        return { imported: false, available: false, source: null, rowCount: 0, updatedAt: null };
+      }
+      throw error;
+    }
+    const imported = data.source === 'imported';
+    const info = imported ? await stat(marketDataFile) : null;
+    return { imported, available: true, source: data.source, rowCount: data.rowCount, updatedAt: info?.mtime.toISOString() || null };
+  }
+
+  async function importMarketData(rows) {
+    validateMarketRows(rows);
+    await mkdir(marketDataDir, { recursive: true });
+    const temporaryFile = resolve(marketDataDir, `.market-data-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporaryFile, JSON.stringify(rows), { flag: 'wx', mode: 0o600 });
+      await rename(temporaryFile, marketDataFile);
+    } finally {
+      await unlink(temporaryFile).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    }
+    marketFileCache.delete('/api/market/de');
+    return marketDataStatus();
+  }
 
   function session(req) {
     const token = parseCookies(req.headers.cookie).bvl_session;
@@ -256,6 +367,11 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     const user = authenticated(req);
     if (!['GET', 'HEAD'].includes(method)) writeAllowed(req, user);
 
+    if (method === 'GET' && marketFiles.has(pathname)) {
+      need(user.role === 'admin' || user.role === 'staff');
+      return marketFile(res, pathname);
+    }
+
     if (method === 'POST' && pathname === '/api/logout') {
       db.prepare('DELETE FROM sessions WHERE token_hash=?').run(user.session_hash);
       return json(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie(secure) });
@@ -331,6 +447,16 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     }
 
     need(user.role === 'admin');
+    if (method === 'GET' && pathname === '/api/admin/market-data') {
+      return json(res, 200, await marketDataStatus());
+    }
+    if (method === 'POST' && pathname === '/api/admin/market-data') {
+      const data = await body(req, MARKET_UPLOAD_LIMIT);
+      if (!Array.isArray(data.rows) || Object.keys(data).length !== 1) bad('JSON mit Feld rows erwartet');
+      const status = await importMarketData(data.rows);
+      audit(db, user.id, 'market_data.import', 'de');
+      return json(res, 200, status);
+    }
     if (method === 'GET' && pathname === '/api/admin/overview') {
       return json(res, 200, {
         users: db.prepare('SELECT COUNT(*) AS n FROM users WHERE active=1').get().n,

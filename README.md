@@ -5,6 +5,7 @@ Lokale, zweisprachige Progressive Web App für BvL-Vertriebswerkzeuge. Das Proje
 ## Enthalten
 
 - Mobile Startseite mit responsiven Link-Karten, Kategorien, Schnellzugriffen und frei wählbaren Icons; Desktop-Administration für Links und Benutzer.
+- Interne Marktanalyse Deutschland mit Landkreis-Karte, Suche, Mehrfachauswahl und anpassbaren Modellannahmen. Die 398 Werte stammen unverändert aus der vorhandenen HTML-Analyse; 389 Datensätze sind einer aktuellen Kartenfläche eindeutig zugeordnet. Unsichere oder nicht vorhandene Zuordnungen bleiben ohne Kartenfarbe, die Datensätze sind über die Suche weiterhin auswählbar. Zugriff nur für `admin` und `staff`.
 - Rollen `admin`, `staff` (BvL intern) und `dealer` (Händler). Nur Admins verwalten Benutzer, Links und Mitteilungen. Admins und einzeln berechtigte Nutzer dürfen Lieferzeiten bearbeiten.
 - Deutsche/englische Oberfläche, iOS-Installationshinweis, Web-App-Manifest, Service Worker und Home-Screen-Icons.
 - Nur Links zur BvL-Canto-Domain öffnen aus der installierten iPhone-/iPad-App direkt in Safari, damit Canto-Downloads dort funktionieren. Alle anderen Links behalten ihr bisheriges Verhalten. Die Safari-Übergabe nutzt ein von Apple nicht offiziell dokumentiertes URL-Schema und muss nach iOS-Updates auf einem echten Gerät geprüft werden.
@@ -43,7 +44,7 @@ Der lokale Server bindet nur `127.0.0.1`. Für Tests auf einem echten iPhone ist
    git push -u origin main
    ```
 
-   Ist das GitHub-Repository nicht leer, zuerst die dortigen Änderungen prüfen und zusammenführen. Keinen Force-Push verwenden. Das Repository sollte privat bleiben, bis BvL die Veröffentlichung ausdrücklich freigibt.
+   Ist das GitHub-Repository nicht leer, zuerst die dortigen Änderungen prüfen und zusammenführen. Keinen Force-Push verwenden. Das derzeitige GitHub-Repository ist öffentlich; Passwörter, Umgebungsvariablen und Benutzerdaten gehören daher **nicht** hinein. Die Marktwerte sind laut BvL öffentliche Daten und werden unter `server/market-data.json` mitgeliefert.
 3. In Coolify auf dem bestehenden Hostinger-VPS ein **eigenes Projekt** und darin eine Anwendung aus diesem GitHub-Repository, Branch `main`, Build-Typ **Dockerfile** (`/Dockerfile`) anlegen. Das Gebrauchtmaschinenportal bleibt getrennt. Die Anwendung lauscht intern auf Port `3000`; kein zusätzlicher öffentlich erreichbarer Host-Port ist nötig.
 4. Beim zuständigen DNS-Anbieter einen `A`-Eintrag für `sales` auf die **aktuelle** IPv4-Adresse desselben VPS legen, der auch `gebrauchtmaschinen.bvlki.cloud` bedient. Erst die tatsächliche VPS-IP und den zuständigen DNS-Anbieter prüfen; der alte Screenshot ist dafür keine verlässliche Quelle. In Coolify als Domain `https://sales.bvlki.cloud` eintragen und TLS/HTTPS aktivieren.
 5. In Coolify `PUBLIC_ORIGIN=https://sales.bvlki.cloud` als Umgebungsvariable setzen, exakt ohne Slash am Ende. `HOST=0.0.0.0`, `PORT=3000` und `DATA_DIR=/app/data` sind bereits im Dockerfile vorbelegt. Die Origin-Prüfung und Secure-Cookies benötigen die exakte HTTPS-Origin.
@@ -52,6 +53,18 @@ Der lokale Server bindet nur `127.0.0.1`. Für Tests auf einem echten iPhone ist
 8. Einen regelmäßigen, extern gesicherten Backup-Prozess für die Datenbank einrichten und Rücksicherung testen. Ein persistentes Volume ist **noch kein Backup**. Für eine manuelle, konsistente Kopie kann `pnpm backup` mit `BACKUP_DIR` auf einen zusätzlich gesicherten Pfad zielen.
 
 `/health` dient als Healthcheck. `compose.yaml` ist eine lokale/alternative Docker-Compose-Option; Coolify kann direkt das Dockerfile bauen. Auf diesem PC ist aktuell kein Docker installiert, daher wurde der Container hier noch nicht gebaut. API- und Browser-Tests laufen lokal mit Node.
+
+## Marktanalyse in der bestehenden Sales App aktivieren
+
+Die Analyse läuft unter `https://sales.bvlki.cloud/#/market/deutschland` in derselben PWA, demselben Docker-Container und auf derselben Domain. Ein neues Projekt, ein neuer Port und eine neue Domain sind nicht erforderlich. Im Admin-Bereich unter **Links** eine Kategorie „Marktinformationen“ anlegen und darin einen direkten Link mit genau dieser URL erstellen. Bei **beiden** Einträgen nur „BvL intern“ aktivieren und „Händler“ deaktivieren. Der Link öffnet sich innerhalb der PWA; Canto- und alle anderen externen Links verhalten sich unverändert. Selbst bei einem falsch gesetzten Händler-Häkchen verweigert die Daten-API Händlern den Zugriff.
+
+Die öffentlichen Marktwerte aus der vorhandenen HTML-Datei werden unter `server/market-data.json` mit Code und Docker ausgeliefert. Nach dem GitHub-Upload und Coolify-Rebuild ist die Analyse sofort verfügbar; ein zusätzlicher Import ist nicht erforderlich. Der Zugriff innerhalb der App und über ihre Daten-API bleibt auf Mitarbeitende und Admins beschränkt. In einem öffentlichen GitHub-Repository sind die mitgelieferten Werte öffentlich lesbar.
+
+Optional kann ein Admin unter **Administration → Marktanalyse** eine aktualisierte JSON-Datei mit demselben Format importieren. Diese Datei liegt im bestehenden persistenten `/app/data`-Volume und hat Vorrang vor den mitgelieferten Werten. Ein solcher Import bleibt auch nach weiteren Code-Updates erhalten und wird nicht durch einen neueren Bundle-Datenstand ersetzt. Das Werkzeug `node scripts/import-market-html.mjs <Pfad-zur-HTML-Datei>` erstellt den mitzuliefernden Datenstand unter `server/market-data.json` erneut.
+
+Für dieses Update die Dateien aus dem vorbereiteten Ordner `GitHub-Upload-BvL-Sales/` im bestehenden GitHub-Repository aktualisieren und anschließend **dieselbe Anwendung** in Coolify neu deployen. Das bestehende persistente Volume mit Ziel `/app/data` und die Umgebungsvariablen unverändert beibehalten. Benutzer, geänderte Passwörter, Kategorien, Links, Lieferzeiten, Mitteilungen und Push-Abonnements liegen in `sales.sqlite` im Volume; das Marktanalyse-Update ersetzt diese Datei nicht und verändert ihr Schema nicht. Der Upload-Ordner enthält weder diese Datenbank noch `.env`, Backups oder die lokale iPhone-Vorschau.
+
+Die vereinfachte Karte basiert auf den amtlichen [BKG-Verwaltungsgebieten VG250 (Stand 01.01.2025)](https://gdz.bkg.bund.de/index.php/default/open-data/wfs-verwaltungsgebiete-1-250-000-stand-01-01-wfs-vg250.html), [dl-de/by-2-0](https://www.govdata.de/dl-de/by-2-0), mit sichtbarer Namensnennung in der App. Das reproduzierbare Build-Skript liegt unter `scripts/build-market-geo.mjs`. Weil die HTML-Werte teils ältere Gebietseinteilungen oder abweichende Landesangaben enthalten, wird nicht per unscharfem Namen geraten; diese Fälle sind als nicht kartiert erkennbar. Die Berechnung übernimmt exakt die Standardannahmen der HTML-Datei (20 % alternative Fütterung, 10 Jahre Erneuerung, 20 % Gebrauchtmaschinen).
 
 ## Vor echtem Rollout prüfen
 

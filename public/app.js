@@ -1,11 +1,12 @@
 import { icon, editableIcons } from './icons.js';
 import { externalLinkDestination } from './external-links.js';
+import { MARKET_ROUTE, isInternalMarketLink, ensureMarketData, resetMarketSession, renderMarketPage, mountMarketPage } from './market.js';
 
 const root = document.getElementById('app');
 const toastNode = document.getElementById('toast');
 const state = {
   user: null, csrf: null, pushEnabled: false, vapidPublicKey: null,
-  portal: null, adminLinks: null, adminUsers: null, adminMessages: null, overview: null,
+  portal: null, adminLinks: null, adminUsers: null, adminMessages: null, overview: null, marketStatus: null,
   language: localStorage.getItem('bvl-language') === 'en' ? 'en' : 'de',
   view: 'home', adminTab: 'overview', categoryId: null, messageId: null,
   editLinkId: null, editUserId: null, selectedIcon: 'link-2',
@@ -19,12 +20,13 @@ const labels = {
     contactAdmin: 'Zugang oder Passwort vergessen? Bitte wenden Sie sich an Ihre BvL-Administration.', installTitle: 'Als App auf dem iPhone nutzen', install1: 'In Safari das Teilen-Symbol antippen.', install2: '„Zum Home-Bildschirm“ auswählen.', install3: 'Mit „Hinzufügen“ bestätigen.', dismiss: 'Schließen', install: 'App installieren',
     morning: 'Guten Morgen', day: 'Guten Tag', evening: 'Guten Abend', milkPrice: 'Milchpreis Deutschland', monthlyPrice: 'Monatswert', priceUnavailable: 'Derzeit nicht verfügbar', priceAutoWeekly: 'Automatischer Abruf: wöchentlich', priceUpdated: 'Aktualisiert', priceLastSuccess: 'Letzter erfolgreicher Abruf', priceStale: 'Abruf derzeit nicht möglich', priceNotUpdated: 'Noch nicht aktualisiert', leadTimes: 'Aktuelle Lieferzeiten', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'Wochen', notSet: 'Noch nicht gepflegt', updated: 'Stand',
     tools: 'Vertriebswerkzeuge', items: 'Inhalte', quick: 'Schnellzugriff', open: 'Öffnen', back: 'Zurück', offline: 'Offline – externe Links und aktuelle Daten benötigen Internet.',
-    home: 'Start', messages: 'Mitteilungen', profile: 'Profil', admin: 'Administration', overview: 'Übersicht', links: 'Links', users: 'Benutzer', delivery: 'Lieferzeiten', settings: 'Einstellungen', visitors: 'Besucher', visitExplanation: 'Gezählte App-Besuche; nach 30 Minuten Inaktivität beginnt ein neuer Besuch.',
+    home: 'Start', messages: 'Mitteilungen', profile: 'Profil', admin: 'Administration', overview: 'Übersicht', links: 'Links', users: 'Benutzer', delivery: 'Lieferzeiten', market: 'Marktanalyse', settings: 'Einstellungen', visitors: 'Besucher', visitExplanation: 'Gezählte App-Besuche; nach 30 Minuten Inaktivität beginnt ein neuer Besuch.',
     noMessages: 'Noch keine Mitteilungen vorhanden.', unread: 'Ungelesen', markRead: 'Als gelesen markieren', role: 'Rolle', language: 'Sprache', push: 'Push-Benachrichtigungen', pushIntro: 'Erhalten Sie wichtige BvL-Mitteilungen und wöchentliche Milchpreis-Updates direkt auf diesem Gerät.', pushEnable: 'Push aktivieren', pushDisable: 'Push auf diesem Gerät deaktivieren', pushMissing: 'Push ist noch nicht eingerichtet. In Coolify müssen VAPID-Schlüssel hinterlegt werden.', pushIos: 'Auf dem iPhone funktioniert Push erst nach „Zum Home-Bildschirm“ und dem Öffnen der installierten App.',
     changePassword: 'Passwort ändern', currentPassword: 'Aktuelles Passwort', newPassword: 'Neues Passwort (mindestens 6 Zeichen)', savePassword: 'Passwort speichern', signOut: 'Abmelden', openAdmin: 'Administration öffnen',
     adminIntro: 'Inhalte, Benutzer und aktuelle Informationen verwalten.', activeUsers: 'Aktive Benutzer', allLinks: 'Links & Kategorien', publishedMessages: 'Veröffentlichte Mitteilungen',
     linksIntro: 'Reihenfolge, Sichtbarkeit und Zielseiten pflegen.', newLink: 'Neuer Inhalt', editLink: 'Inhalt bearbeiten', titleDe: 'Bezeichnung (DE)', titleEn: 'Bezeichnung (EN)', descriptionDe: 'Kurztext (DE)', descriptionEn: 'Kurztext (EN)', parent: 'Übergeordnete Kategorie', topLevel: 'Hauptebene', url: 'Ziel-URL (leer = Kategorie)', icon: 'Icon', audience: 'Zielgruppe', staff: 'BvL intern', dealer: 'Händler', active: 'Aktiv', featured: 'Als Schnellzugriff hervorheben', position: 'Reihenfolge', save: 'Speichern', delete: 'Löschen', edit: 'Bearbeiten', cancelled: 'Abbrechen', chooseLink: 'Wählen Sie links einen Inhalt aus oder legen Sie einen neuen an.', statusActive: 'Aktiv', statusInactive: 'Inaktiv', category: 'Kategorie', directLink: 'Direkter Link',
     deliveryIntro: 'Aktuelle Lieferzeiten in Wochen für die Sales App pflegen.', deliveryNote: 'Bearbeitung: Admin oder berechtigte Vertriebs- und Produktionsleitung. Änderungen sind sofort auf allen Geräten sichtbar.', saveDelivery: 'Lieferzeiten speichern',
+    marketIntro: 'Datenstand der Marktanalyse ansehen und bei Bedarf aktualisieren.', marketImport: 'Marktdaten importieren', marketFile: 'JSON-Datei mit 398 Landkreis-Datensätzen', marketReady: 'Marktdaten sind verfügbar', marketMissing: 'Keine Marktdaten verfügbar', marketStorage: 'Die Marktwerte werden mit der App bereitgestellt. Ein optionaler Import ersetzt diesen Datenstand und bleibt bei weiteren App-Updates erhalten.', marketBundled: 'Mitgelieferter Datenstand', marketUpdated: 'Zuletzt importiert', marketRows: 'Landkreis-Datensätze',
     usersIntro: 'Zugänge und Berechtigungen sicher verwalten.', newUser: 'Neuer Benutzer', displayName: 'Anzeigename', userClass: 'Nutzerklasse', leadPermission: 'Lieferzeiten bearbeiten', userActive: 'Zugang aktiv', resetPassword: 'Neues Passwort (leer lassen = unverändert)', createPassword: 'Initiales Passwort (mindestens 6 Zeichen)', saveUser: 'Benutzer speichern', chooseUser: 'Wählen Sie einen Benutzer aus oder legen Sie einen neuen an.',
     messagesIntro: 'In-App-Mitteilungen verfassen und auf Wunsch per Push veröffentlichen.', newMessage: 'Neue Mitteilung', subjectDe: 'Titel (DE)', subjectEn: 'Titel (EN)', bodyDe: 'Text (DE)', bodyEn: 'Text (EN)', all: 'Alle', selected: 'Ausgewählte Benutzer', recipients: 'Empfänger', draft: 'Entwurf speichern', publish: 'Veröffentlichen & Push senden', publishDraft: 'Entwurf veröffentlichen', published: 'Veröffentlicht', noAdminMessages: 'Noch keine Mitteilungen.',
     saved: 'Gespeichert.', deleted: 'Gelöscht.', publishedToast: 'Mitteilung veröffentlicht.', loginFailed: 'Anmeldung fehlgeschlagen.', offlineLogin: 'Ohne Internet ist keine neue Anmeldung möglich.'
@@ -34,12 +36,13 @@ const labels = {
     contactAdmin: 'Need access or forgot your password? Please contact your BvL administrator.', installTitle: 'Use as an app on iPhone', install1: 'Tap Share in Safari.', install2: 'Choose “Add to Home Screen”.', install3: 'Confirm with “Add”.', dismiss: 'Dismiss', install: 'Install app',
     morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', milkPrice: 'German milk price', monthlyPrice: 'Monthly price', priceUnavailable: 'Currently unavailable', priceAutoWeekly: 'Automatic check: weekly', priceUpdated: 'Updated', priceLastSuccess: 'Last successful check', priceStale: 'Source currently unavailable', priceNotUpdated: 'Not updated yet', leadTimes: 'Current lead times', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'weeks', notSet: 'Not set yet', updated: 'Updated',
     tools: 'Sales tools', items: 'items', quick: 'Quick access', open: 'Open', back: 'Back', offline: 'Offline – external links and current data need internet.',
-    home: 'Home', messages: 'Messages', profile: 'Profile', admin: 'Administration', overview: 'Overview', links: 'Links', users: 'Users', delivery: 'Lead times', settings: 'Settings', visitors: 'Visitors', visitExplanation: 'Counted app visits; a new visit begins after 30 minutes of inactivity.',
+    home: 'Home', messages: 'Messages', profile: 'Profile', admin: 'Administration', overview: 'Overview', links: 'Links', users: 'Users', delivery: 'Lead times', market: 'Market analysis', settings: 'Settings', visitors: 'Visitors', visitExplanation: 'Counted app visits; a new visit begins after 30 minutes of inactivity.',
     noMessages: 'No messages yet.', unread: 'Unread', markRead: 'Mark as read', role: 'Role', language: 'Language', push: 'Push notifications', pushIntro: 'Receive BvL messages and weekly milk-price updates directly on this device.', pushEnable: 'Enable push', pushDisable: 'Disable push on this device', pushMissing: 'Push is not configured yet. VAPID keys must be added in Coolify.', pushIos: 'On iPhone, push requires adding the app to the Home Screen and opening the installed app.',
     changePassword: 'Change password', currentPassword: 'Current password', newPassword: 'New password (at least 6 characters)', savePassword: 'Save password', signOut: 'Sign out', openAdmin: 'Open administration',
     adminIntro: 'Manage content, users and current information.', activeUsers: 'Active users', allLinks: 'Links & categories', publishedMessages: 'Published messages',
     linksIntro: 'Manage order, visibility and destinations.', newLink: 'New content', editLink: 'Edit content', titleDe: 'Label (DE)', titleEn: 'Label (EN)', descriptionDe: 'Short text (DE)', descriptionEn: 'Short text (EN)', parent: 'Parent category', topLevel: 'Top level', url: 'Target URL (empty = category)', icon: 'Icon', audience: 'Audience', staff: 'BvL staff', dealer: 'Dealers', active: 'Active', featured: 'Highlight as quick access', position: 'Order', save: 'Save', delete: 'Delete', edit: 'Edit', cancelled: 'Cancel', chooseLink: 'Select content on the left or create a new item.', statusActive: 'Active', statusInactive: 'Inactive', category: 'Category', directLink: 'Direct link',
     deliveryIntro: 'Manage current delivery estimates in weeks for the sales app.', deliveryNote: 'Editable by admins and authorized sales or production managers. Changes appear on all devices immediately.', saveDelivery: 'Save lead times',
+    marketIntro: 'View the market analysis data and update it when needed.', marketImport: 'Import market data', marketFile: 'JSON file with 398 district records', marketReady: 'Market data is available', marketMissing: 'No market data available', marketStorage: 'Market values are included with the app. An optional import overrides these values and remains available after future app updates.', marketBundled: 'Data included with the app', marketUpdated: 'Last imported', marketRows: 'district records',
     usersIntro: 'Manage accounts and permissions securely.', newUser: 'New user', displayName: 'Display name', userClass: 'User class', leadPermission: 'Edit lead times', userActive: 'Account active', resetPassword: 'New password (leave empty to keep current)', createPassword: 'Initial password (at least 6 characters)', saveUser: 'Save user', chooseUser: 'Select a user or create a new one.',
     messagesIntro: 'Write in-app messages and optionally publish with push.', newMessage: 'New message', subjectDe: 'Title (DE)', subjectEn: 'Title (EN)', bodyDe: 'Text (DE)', bodyEn: 'Text (EN)', all: 'All', selected: 'Selected users', recipients: 'Recipients', draft: 'Save draft', publish: 'Publish & send push', publishDraft: 'Publish draft', published: 'Published', noAdminMessages: 'No messages yet.',
     saved: 'Saved.', deleted: 'Deleted.', publishedToast: 'Message published.', loginFailed: 'Sign-in failed.', offlineLogin: 'You cannot sign in offline.'
@@ -67,6 +70,7 @@ function toast(message, error = false) {
 }
 
 function externalLinkAttributes(url) {
+  if (isInternalMarketLink(url, location.href)) return `href="${MARKET_ROUTE}"`;
   const destination = externalLinkDestination(url, isIOSStandalone());
   return `href="${esc(destination.href)}"${destination.newTab ? ' target="_blank" rel="noopener noreferrer"' : ''}`;
 }
@@ -128,7 +132,7 @@ function renderBottomNav() {
   if (state.view === 'admin') return '';
   return `<nav class="bottom-nav" aria-label="App-Navigation">
     ${[['home','home','home'],['messages','bell','messages'],['profile','user-round','profile']].map(([view, symbol, label]) =>
-      `<button type="button" data-action="navigate" data-value="${view}" class="${state.view === view || state.view === 'category' && view === 'home' ? 'active' : ''}" aria-current="${state.view === view ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(label))}</span></button>`).join('')}
+      `<button type="button" data-action="navigate" data-value="${view}" class="${state.view === view || (state.view === 'category' || state.view === 'market') && view === 'home' ? 'active' : ''}" aria-current="${state.view === view ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(label))}</span></button>`).join('')}
   </nav>`;
 }
 
@@ -165,7 +169,7 @@ function renderTool(link, childCount) {
   const isCategory = !link.url;
   const className = `tool-card${link.featured ? ' featured' : ''}`;
   const inner = `<span class="tile-icon">${icon(link.icon)}</span><span class="tile-copy">${link.featured ? `<span class="tile-kicker">${esc(t('quick'))}</span>` : ''}<span class="tile-title">${esc(text(link))}</span>
-    <span class="tile-meta">${esc(desc(link) || (isCategory ? `${childCount} ${t('items')}` : t('open')))} ${icon(isCategory ? 'chevron-right' : 'external-link')}</span></span>${link.featured ? `<span class="tile-arrow">${icon('arrow-up-right')}</span>` : ''}`;
+    <span class="tile-meta">${esc(desc(link) || (isCategory ? `${childCount} ${t('items')}` : t('open')))} ${icon(isCategory || isInternalMarketLink(link.url, location.href) ? 'chevron-right' : 'external-link')}</span></span>${link.featured ? `<span class="tile-arrow">${icon('arrow-up-right')}</span>` : ''}`;
   return isCategory
     ? `<button type="button" class="${className}" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>`
     : `<a class="${className}" ${externalLinkAttributes(link.url)}>${inner}</a>`;
@@ -193,7 +197,7 @@ function renderCategory() {
     ${desc(category) ? `<p class="page-intro">${esc(desc(category))}</p>` : ''}
     <div class="category-links">${children.length ? children.map(link => {
       const nested = !link.url;
-      const inner = `<span class="row-icon">${icon(link.icon)}</span><span><strong>${esc(text(link))}</strong>${desc(link) ? `<small>${esc(desc(link))}</small>` : ''}</span>${icon(nested ? 'chevron-right' : 'external-link')}`;
+      const inner = `<span class="row-icon">${icon(link.icon)}</span><span><strong>${esc(text(link))}</strong>${desc(link) ? `<small>${esc(desc(link))}</small>` : ''}</span>${icon(nested || isInternalMarketLink(link.url, location.href) ? 'chevron-right' : 'external-link')}`;
       return nested ? `<button class="category-row" type="button" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>` : `<a class="category-row" ${externalLinkAttributes(link.url)}>${inner}</a>`;
     }).join('') : `<div class="empty-state">${esc(t('notSet'))}</div>`}</div></main>`;
 }
@@ -226,7 +230,7 @@ function renderProfile() {
 
 function adminNav() {
   const tabs = state.user.role === 'admin'
-    ? [['overview','home'],['links','link-2'],['delivery','clock-3'],['users','users'],['messages','bell']]
+    ? [['overview','home'],['links','link-2'],['delivery','clock-3'],['market','chart-no-axes-combined'],['users','users'],['messages','bell']]
     : [['delivery','clock-3']];
   return `<aside class="admin-sidebar"><nav class="admin-nav" aria-label="${esc(t('admin'))}">${tabs.map(([tab, symbol]) =>
     `<button type="button" data-action="admin-tab" data-value="${tab}" class="${state.adminTab === tab ? 'active' : ''}" aria-current="${state.adminTab === tab ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(tab))}</span></button>`).join('')}</nav></aside>`;
@@ -290,6 +294,22 @@ function renderDelivery() {
     <div class="delivery-note">${icon('shield-check')}<span>${esc(t('deliveryNote'))}</span></div>`;
 }
 
+function renderAdminMarket() {
+  const status = state.marketStatus;
+  const available = status?.available ?? status?.imported;
+  return `${adminHeading(t('market'), t('marketIntro'))}
+    <div class="market-admin-grid">
+      <section class="profile-panel"><h2>${esc(available ? t('marketReady') : t('marketMissing'))}</h2>
+        ${available ? `<p>${esc(t('marketRows'))}: <strong>${esc(status.rowCount)}</strong>${status.source === 'bundled' ? ` · ${esc(t('marketBundled'))}` : status.updatedAt ? ` · ${esc(t('marketUpdated'))}: ${esc(localDate(status.updatedAt))}` : ''}</p>` : ''}
+        <p>${esc(t('marketStorage'))}</p>
+      </section>
+      <section class="profile-panel"><h2>${esc(t('marketImport'))}</h2><form data-form="market-import" class="form-grid">
+        <label class="field span-2">${esc(t('marketFile'))}<input name="file" type="file" accept=".json,application/json" required></label>
+        <div class="span-2"><button class="button primary" type="submit">${esc(t('marketImport'))}</button></div>
+      </form></section>
+    </div>`;
+}
+
 function renderUserEditor() {
   const target = state.adminUsers?.find(item => item.id === state.editUserId);
   const isNew = state.editUserId === 'new';
@@ -332,7 +352,7 @@ function renderAdminMessages() {
 function renderAdmin() {
   if (state.user.role !== 'admin' && !state.user.canEditLeadTimes) return renderHome();
   const tab = state.user.role === 'admin' ? state.adminTab : 'delivery';
-  const content = tab === 'overview' ? renderOverview() : tab === 'links' ? renderAdminLinks() : tab === 'delivery' ? renderDelivery() : tab === 'users' ? renderAdminUsers() : renderAdminMessages();
+  const content = tab === 'overview' ? renderOverview() : tab === 'links' ? renderAdminLinks() : tab === 'delivery' ? renderDelivery() : tab === 'market' ? renderAdminMarket() : tab === 'users' ? renderAdminUsers() : renderAdminMessages();
   return `<div class="admin-layout">${adminNav()}<main class="admin-content">${content}</main></div>`;
 }
 
@@ -346,13 +366,15 @@ function render() {
   document.documentElement.lang = state.language;
   const offline = !state.online ? `<div class="offline-banner">${icon('wifi-off')} ${esc(t('offline'))}</div>` : '';
   root.innerHTML = state.user
-    ? `<div class="app-shell">${offline}${renderTopbar()}${state.view === 'admin' ? renderAdmin() : state.view === 'category' ? renderCategory() : state.view === 'messages' ? renderMessages() : state.view === 'profile' ? renderProfile() : renderHome()}${renderBottomNav()}</div>`
+    ? `<div class="app-shell">${offline}${renderTopbar()}${state.view === 'admin' ? renderAdmin() : state.view === 'category' ? renderCategory() : state.view === 'market' ? renderMarketPage(state.language, ['admin', 'staff'].includes(state.user.role)) : state.view === 'messages' ? renderMessages() : state.view === 'profile' ? renderProfile() : renderHome()}${renderBottomNav()}</div>`
     : `${offline}${renderLogin()}`;
+  if (state.user && state.view === 'market') mountMarketPage(root, state.language, render);
 }
 
 function readRoute() {
   const route = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   if (route.startsWith('category/')) { state.view = 'category'; state.categoryId = route.slice(9); }
+  else if (route === 'market/deutschland') state.view = 'market';
   else if (route.startsWith('messages/')) { state.view = 'messages'; state.messageId = route.slice(9); }
   else if (route === 'messages') { state.view = 'messages'; state.messageId = null; }
   else if (route === 'profile') state.view = 'profile';
@@ -362,6 +384,9 @@ function readRoute() {
   if (state.view === 'admin' && state.user?.role !== 'admin') state.adminTab = 'delivery';
   render();
   if (state.view === 'admin') loadAdminTab().catch(error => toast(error.message, true));
+  if (state.view === 'market' && ['admin', 'staff'].includes(state.user?.role)) {
+    ensureMarketData().then(() => { if (state.view === 'market') render(); }).catch(() => { if (state.view === 'market') render(); });
+  }
 }
 
 async function loadPortal() {
@@ -378,6 +403,7 @@ async function loadAdminTab() {
     state.selectedIcon = state.adminLinks.find(item => item.id === state.editLinkId)?.icon || 'link-2';
   }
   if (state.adminTab === 'users') state.adminUsers = (await api('/api/admin/users')).users;
+  if (state.adminTab === 'market') state.marketStatus = await api('/api/admin/market-data');
   if (state.adminTab === 'messages') {
     [state.adminMessages, state.adminUsers] = await Promise.all([
       api('/api/admin/messages').then(data => data.messages),
@@ -398,7 +424,7 @@ async function submitForm(form, submitter) {
     const result = await api('/api/login', { method: 'POST', data: { username: values.get('username'), password: values.get('password') } });
     state.user = result.user; state.csrf = result.csrfToken; state.pushEnabled = result.pushEnabled; state.vapidPublicKey = result.vapidPublicKey; state.language = result.user.language;
     localStorage.setItem('bvl-language', state.language);
-    location.hash = '#/home';
+    location.hash = location.hash === MARKET_ROUTE ? MARKET_ROUTE : '#/home';
     await loadPortal();
     readRoute();
     return;
@@ -414,6 +440,17 @@ async function submitForm(form, submitter) {
       updatedAt: result.leadTimes.updated_at
     };
     toast(t('saved')); render(); return;
+  }
+  if (kind === 'market-import') {
+    const file = values.get('file');
+    if (!(file instanceof File) || !file.size) throw new Error(t('marketFile'));
+    let rows;
+    try { rows = JSON.parse(await file.text()); } catch { throw new Error('Ungültige JSON-Datei'); }
+    await api('/api/admin/market-data', { method: 'POST', data: { rows } });
+    resetMarketSession();
+    await loadAdminTab();
+    toast(t('saved'));
+    return;
   }
   if (kind === 'link') {
     const data = {
@@ -534,6 +571,7 @@ root.addEventListener('click', async event => {
     }
     if (action === 'logout') {
       await api('/api/logout', { method: 'POST', data: {} });
+      resetMarketSession();
       state.user = null; state.csrf = null; state.portal = null;
       location.hash = '#/home'; render();
     }
