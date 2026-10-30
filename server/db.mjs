@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 export function openDatabase(file = process.env.DATABASE_FILE || resolve(process.env.DATA_DIR || './data', 'sales.sqlite')) {
   mkdirSync(dirname(file), { recursive: true });
@@ -117,6 +118,36 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
       target_id TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS contacts (
+      id TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL CHECK (revision >= 1),
+      owner_id TEXT NOT NULL,
+      owner_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      name TEXT NOT NULL,
+      company TEXT NOT NULL,
+      email TEXT NOT NULL,
+      fair TEXT NOT NULL,
+      fair_year TEXT NOT NULL,
+      status TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_contacts_owner_updated ON contacts(owner_id,updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_contacts_fair_year ON contacts(fair,fair_year);
+    CREATE TABLE IF NOT EXISTS contact_mutations (
+      actor_id TEXT NOT NULL,
+      mutation_id TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (actor_id,mutation_id)
+    );
+    CREATE TABLE IF NOT EXISTS app_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
   `);
   const leadColumns = new Set(db.prepare('PRAGMA table_info(lead_times)').all().map(column => column.name));
   if (!leadColumns.has('v_bio_fix_weeks')) {
@@ -126,7 +157,37 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
     db.exec('ALTER TABLE lead_times ADD COLUMN v_load_weeks INTEGER CHECK (v_load_weeks BETWEEN 1 AND 52)');
   }
   seedLinks(db);
+  seedContactsLink(db);
   return db;
+}
+
+function seedContactsLink(db) {
+  const migration = 'contacts_home_link_v1';
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!db.prepare('SELECT 1 FROM app_migrations WHERE name=?').get(migration)) {
+      const existing = db.prepare('SELECT id,url FROM links').all().some(row => {
+        if (!row.url) return false;
+        try { return new URL(row.url, 'https://sales.bvlki.cloud').hash === '#/contacts'; }
+        catch { return false; }
+      });
+      if (!existing) {
+        const stamp = new Date().toISOString();
+        const position = db.prepare('SELECT COALESCE(MAX(position),0) AS position FROM links WHERE parent_id IS NULL').get().position + 10;
+        db.prepare(`INSERT INTO links
+          (id,parent_id,title_de,title_en,description_de,description_en,url,icon,audience_staff,audience_dealer,active,featured,position,created_at,updated_at)
+          VALUES (?,NULL,?,?,?,?,?,'users',1,0,1,0,?,?,?)`)
+          .run(randomUUID(), 'Messekontakte', 'Trade fair contacts', 'Kontakte erfassen und nachfassen',
+            'Capture and follow up contacts', 'https://sales.bvlki.cloud/#/contacts', position, stamp, stamp);
+      }
+      db.prepare('INSERT INTO app_migrations(name,applied_at) VALUES (?,?)')
+        .run(migration, new Date().toISOString());
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 function seedLinks(db) {

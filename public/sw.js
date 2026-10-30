@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'bvl-sales-shell-v11';
-const SHELL_FILES = ['/', '/index.html', '/styles.css?v=10', '/app.js?v=10', '/market.js', '/external-links.js', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const SHELL_CACHE = 'bvl-sales-shell-v14';
+const SHELL_FILES = ['/', '/index.html', '/styles.css?v=13', '/contacts.css?v=1', '/app.js?v=13', '/contacts.js', '/contact-store.js', '/market.js', '/external-links.js', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL_FILES)));

@@ -1,11 +1,13 @@
 import { icon, editableIcons } from './icons.js';
 import { externalLinkDestination } from './external-links.js';
 import { MARKET_ROUTE, isInternalMarketLink, ensureMarketData, resetMarketSession, renderMarketPage, mountMarketPage } from './market.js';
+import { CONTACTS_ROUTE, isInternalContactsLink, renderContactsPage, mountContactsPage, renderAdminContactsPage, mountAdminContactsPage } from './contacts.js';
+import { createContactStore } from './contact-store.js';
 
 const root = document.getElementById('app');
 const toastNode = document.getElementById('toast');
 const state = {
-  user: null, csrf: null, pushEnabled: false, vapidPublicKey: null,
+  user: null, csrf: null, pushEnabled: false, vapidPublicKey: null, offlineSession: false,
   portal: null, adminLinks: null, adminUsers: null, adminMessages: null, overview: null, marketStatus: null,
   language: localStorage.getItem('bvl-language') === 'en' ? 'en' : 'de',
   view: 'home', adminTab: 'overview', categoryId: null, messageId: null,
@@ -20,7 +22,7 @@ const labels = {
     contactAdmin: 'Zugang oder Passwort vergessen? Bitte wenden Sie sich an Ihre BvL-Administration.', installTitle: 'Als App auf dem iPhone nutzen', install1: 'In Safari das Teilen-Symbol antippen.', install2: '„Zum Home-Bildschirm“ auswählen.', install3: 'Mit „Hinzufügen“ bestätigen.', dismiss: 'Schließen', install: 'App installieren',
     morning: 'Guten Morgen', day: 'Guten Tag', evening: 'Guten Abend', milkPrice: 'Milchpreis Deutschland', monthlyPrice: 'Monatswert', priceUnavailable: 'Derzeit nicht verfügbar', priceAutoWeekly: 'Automatischer Abruf: wöchentlich', priceUpdated: 'Aktualisiert', priceLastSuccess: 'Letzter erfolgreicher Abruf', priceStale: 'Abruf derzeit nicht möglich', priceNotUpdated: 'Noch nicht aktualisiert', leadTimes: 'Aktuelle Lieferzeiten', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'Wochen', notSet: 'Noch nicht gepflegt', updated: 'Stand',
     tools: 'Vertriebswerkzeuge', items: 'Inhalte', quick: 'Schnellzugriff', open: 'Öffnen', back: 'Zurück', offline: 'Offline – externe Links und aktuelle Daten benötigen Internet.',
-    home: 'Start', messages: 'Mitteilungen', profile: 'Profil', admin: 'Administration', overview: 'Übersicht', links: 'Links', users: 'Benutzer', delivery: 'Lieferzeiten', market: 'Marktanalyse', settings: 'Einstellungen', visitors: 'Besucher', visitExplanation: 'Gezählte App-Besuche; nach 30 Minuten Inaktivität beginnt ein neuer Besuch.',
+    home: 'Start', messages: 'Mitteilungen', profile: 'Profil', admin: 'Administration', overview: 'Übersicht', links: 'Links', users: 'Benutzer', delivery: 'Lieferzeiten', market: 'Marktanalyse', contacts: 'Kontakte', settings: 'Einstellungen', visitors: 'Besucher', visitExplanation: 'Gezählte App-Besuche; nach 30 Minuten Inaktivität beginnt ein neuer Besuch.',
     noMessages: 'Noch keine Mitteilungen vorhanden.', unread: 'Ungelesen', markRead: 'Als gelesen markieren', role: 'Rolle', language: 'Sprache', push: 'Push-Benachrichtigungen', pushIntro: 'Erhalten Sie wichtige BvL-Mitteilungen und wöchentliche Milchpreis-Updates direkt auf diesem Gerät.', pushEnable: 'Push aktivieren', pushDisable: 'Push auf diesem Gerät deaktivieren', pushMissing: 'Push ist noch nicht eingerichtet. In Coolify müssen VAPID-Schlüssel hinterlegt werden.', pushIos: 'Auf dem iPhone funktioniert Push erst nach „Zum Home-Bildschirm“ und dem Öffnen der installierten App.',
     changePassword: 'Passwort ändern', currentPassword: 'Aktuelles Passwort', newPassword: 'Neues Passwort (mindestens 6 Zeichen)', savePassword: 'Passwort speichern', signOut: 'Abmelden', openAdmin: 'Administration öffnen',
     adminIntro: 'Inhalte, Benutzer und aktuelle Informationen verwalten.', activeUsers: 'Aktive Benutzer', allLinks: 'Links & Kategorien', publishedMessages: 'Veröffentlichte Mitteilungen',
@@ -36,7 +38,7 @@ const labels = {
     contactAdmin: 'Need access or forgot your password? Please contact your BvL administrator.', installTitle: 'Use as an app on iPhone', install1: 'Tap Share in Safari.', install2: 'Choose “Add to Home Screen”.', install3: 'Confirm with “Add”.', dismiss: 'Dismiss', install: 'Install app',
     morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', milkPrice: 'German milk price', monthlyPrice: 'Monthly price', priceUnavailable: 'Currently unavailable', priceAutoWeekly: 'Automatic check: weekly', priceUpdated: 'Updated', priceLastSuccess: 'Last successful check', priceStale: 'Source currently unavailable', priceNotUpdated: 'Not updated yet', leadTimes: 'Current lead times', towed: 'V-MIX', self: 'V-MIX Drive', vBioFix: 'V-BIO/FIX', vLoad: 'V-LOAD', weeks: 'weeks', notSet: 'Not set yet', updated: 'Updated',
     tools: 'Sales tools', items: 'items', quick: 'Quick access', open: 'Open', back: 'Back', offline: 'Offline – external links and current data need internet.',
-    home: 'Home', messages: 'Messages', profile: 'Profile', admin: 'Administration', overview: 'Overview', links: 'Links', users: 'Users', delivery: 'Lead times', market: 'Market analysis', settings: 'Settings', visitors: 'Visitors', visitExplanation: 'Counted app visits; a new visit begins after 30 minutes of inactivity.',
+    home: 'Home', messages: 'Messages', profile: 'Profile', admin: 'Administration', overview: 'Overview', links: 'Links', users: 'Users', delivery: 'Lead times', market: 'Market analysis', contacts: 'Contacts', settings: 'Settings', visitors: 'Visitors', visitExplanation: 'Counted app visits; a new visit begins after 30 minutes of inactivity.',
     noMessages: 'No messages yet.', unread: 'Unread', markRead: 'Mark as read', role: 'Role', language: 'Language', push: 'Push notifications', pushIntro: 'Receive BvL messages and weekly milk-price updates directly on this device.', pushEnable: 'Enable push', pushDisable: 'Disable push on this device', pushMissing: 'Push is not configured yet. VAPID keys must be added in Coolify.', pushIos: 'On iPhone, push requires adding the app to the Home Screen and opening the installed app.',
     changePassword: 'Change password', currentPassword: 'Current password', newPassword: 'New password (at least 6 characters)', savePassword: 'Save password', signOut: 'Sign out', openAdmin: 'Open administration',
     adminIntro: 'Manage content, users and current information.', activeUsers: 'Active users', allLinks: 'Links & categories', publishedMessages: 'Published messages',
@@ -60,6 +62,117 @@ const greeting = () => { const hour = new Date().getHours(); return t(hour < 11 
 const isIOSStandalone = () => (/iPad|iPhone|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   && (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true);
 let toastTimer;
+let contactStore = null;
+let contactStoreReady = null;
+let pageCleanup = null;
+let reconnecting = null;
+let sessionEpoch = 0;
+let logoutTask = null;
+const OFFLINE_USER_KEY = 'bvl-contact-offline-user';
+const PENDING_LOGOUT_KEY = 'bvl-pending-server-logout';
+
+function pendingLogout() { try { return localStorage.getItem(PENDING_LOGOUT_KEY) === '1'; } catch { return false; } }
+
+async function finishPendingLogout() {
+  if (logoutTask) return logoutTask;
+  logoutTask = (async () => {
+    if (!navigator.onLine) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const session = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+      if (session.status === 401) { localStorage.removeItem(PENDING_LOGOUT_KEY); return; }
+      if (!session.ok) return;
+      const data = await session.json();
+      const result = await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': data.csrfToken }, body: '{}' });
+      if (result.ok || result.status === 401) localStorage.removeItem(PENDING_LOGOUT_KEY);
+    } catch { /* Stay locally signed out; retry server logout on reconnect. */ }
+    finally { clearTimeout(timeout); }
+  })();
+  try { await logoutTask; } finally { logoutTask = null; }
+}
+
+function rememberOfflineUser(user) {
+  try {
+    if (!['admin', 'staff'].includes(user.role)) return localStorage.removeItem(OFFLINE_USER_KEY);
+    localStorage.setItem(OFFLINE_USER_KEY, JSON.stringify({ user: { id: user.id, username: user.username, displayName: user.displayName, role: user.role, language: user.language }, until: Date.now() + 7 * 86400000 }));
+  } catch { /* Contact persistence reports its own storage errors. */ }
+}
+
+function offlineUser() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OFFLINE_USER_KEY));
+    return saved?.until > Date.now() && saved.until <= Date.now() + 7 * 86400000 &&
+      typeof saved.user?.id === 'string' && typeof saved.user?.displayName === 'string' &&
+      ['admin', 'staff'].includes(saved.user.role) ? saved.user : null;
+  } catch { return null; }
+}
+
+async function prepareContactStore() {
+  if (!['admin', 'staff'].includes(state.user?.role)) {
+    contactStore?.close(); contactStore = null; contactStoreReady = null; return;
+  }
+  if (contactStoreReady?.userId === state.user.id) return contactStoreReady.promise;
+  contactStore?.close();
+  const user = state.user;
+  contactStore = createContactStore({ user, api: (path, options) => {
+    if (state.user?.id !== user.id) throw new Error('Sitzung gewechselt');
+    return api(path, options);
+  } });
+  const store = contactStore;
+  const promise = store.init().catch(problem => { contactStoreReady = null; toast(problem.message, true); });
+  contactStoreReady = { userId: user.id, promise };
+  await promise;
+}
+
+function clearSessionView(removeOfflineIdentity = true) {
+  sessionEpoch++;
+  pageCleanup?.(); pageCleanup = null;
+  contactStore?.close(); contactStore = null; contactStoreReady = null;
+  resetMarketSession();
+  state.user = null; state.csrf = null; state.portal = null; state.offlineSession = false;
+  state.pushEnabled = false; state.vapidPublicKey = null;
+  state.adminLinks = state.adminUsers = state.adminMessages = state.overview = state.marketStatus = null;
+  if (removeOfflineIdentity) try { localStorage.removeItem(OFFLINE_USER_KEY); } catch { /* No offline identity retained. */ }
+}
+
+function contactPageActive() {
+  return state.view === 'contacts' || state.view === 'admin' && state.adminTab === 'contacts';
+}
+
+function updateConnectionBanner() {
+  const banner = root.querySelector('[data-connection-banner]');
+  if (banner) {
+    banner.hidden = state.online && !state.offlineSession;
+    banner.innerHTML = `${icon('wifi-off')} ${esc(state.offlineSession ? (state.language === 'de' ? 'Offline-Modus: Messekontakte bleiben auf diesem Gerät. Abgleich nach erneuter Verbindung und Anmeldung.' : 'Offline mode: contacts remain on this device until connection and sign-in are restored.') : t('offline'))}`;
+  }
+}
+
+async function resumeConnection() {
+  if (pendingLogout()) { await finishPendingLogout(); return; }
+  if (!state.user || !navigator.onLine) return;
+  if (reconnecting) return reconnecting;
+  reconnecting = (async () => {
+    const started = sessionEpoch;
+    try {
+      const result = await api('/api/session');
+      if (started !== sessionEpoch) return;
+      const changed = state.user?.id !== result.user.id || state.user?.role !== result.user.role;
+      if (changed) clearSessionView();
+      state.user = result.user; state.csrf = result.csrfToken; state.pushEnabled = result.pushEnabled; state.vapidPublicKey = result.vapidPublicKey;
+      state.offlineSession = false; rememberOfflineUser(result.user);
+      const applied = sessionEpoch;
+      await prepareContactStore();
+      if (applied !== sessionEpoch) return;
+      if (changed) readRoute();
+      updateConnectionBanner();
+      await Promise.all([loadPortal(), contactStore?.sync()]);
+    } catch (error) {
+      if (error.status === 401 && started === sessionEpoch) { clearSessionView(); readRoute(); toast(state.language === 'de' ? 'Bitte erneut anmelden. Lokal gespeicherte Kontakte bleiben für Ihr Konto erhalten.' : 'Please sign in again. Locally saved contacts remain available for your account.', true); }
+    }
+  })();
+  try { await reconnecting; } finally { reconnecting = null; }
+}
 
 function toast(message, error = false) {
   toastNode.textContent = message;
@@ -71,20 +184,25 @@ function toast(message, error = false) {
 
 function externalLinkAttributes(url) {
   if (isInternalMarketLink(url, location.href)) return `href="${MARKET_ROUTE}"`;
+  if (isInternalContactsLink(url, location.href)) return `href="${CONTACTS_ROUTE}"`;
   const destination = externalLinkDestination(url, isIOSStandalone());
   return `href="${esc(destination.href)}"${destination.newTab ? ' target="_blank" rel="noopener noreferrer"' : ''}`;
 }
 
-async function api(path, { method = 'GET', data } = {}) {
+async function api(path, { method = 'GET', data, signal } = {}) {
+  if (state.offlineSession && path !== '/api/session' && path !== '/api/login') {
+    const error = new Error(state.language === 'de' ? 'Für diese Funktion bitte zuerst wieder online anmelden.' : 'Please reconnect and sign in to use this function.');
+    error.status = 503; throw error;
+  }
   const response = await fetch(path, {
-    method, credentials: 'same-origin',
+    method, credentials: 'same-origin', signal,
     headers: data === undefined ? {} : { 'Content-Type': 'application/json', ...(state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
     body: data === undefined ? undefined : JSON.stringify(data),
     cache: 'no-store'
   });
   let payload = {};
   try { payload = await response.json(); } catch { /* A network/proxy error may not be JSON. */ }
-  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.status = response.status; error.payload = payload; throw error; }
   return payload;
 }
 
@@ -132,7 +250,7 @@ function renderBottomNav() {
   if (state.view === 'admin') return '';
   return `<nav class="bottom-nav" aria-label="App-Navigation">
     ${[['home','home','home'],['messages','bell','messages'],['profile','user-round','profile']].map(([view, symbol, label]) =>
-      `<button type="button" data-action="navigate" data-value="${view}" class="${state.view === view || (state.view === 'category' || state.view === 'market') && view === 'home' ? 'active' : ''}" aria-current="${state.view === view ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(label))}</span></button>`).join('')}
+      `<button type="button" data-action="navigate" data-value="${view}" class="${state.view === view || ['category', 'market', 'contacts'].includes(state.view) && view === 'home' ? 'active' : ''}" aria-current="${state.view === view ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(label))}</span></button>`).join('')}
   </nav>`;
 }
 
@@ -169,14 +287,14 @@ function renderTool(link, childCount) {
   const isCategory = !link.url;
   const className = `tool-card${link.featured ? ' featured' : ''}`;
   const inner = `<span class="tile-icon">${icon(link.icon)}</span><span class="tile-copy">${link.featured ? `<span class="tile-kicker">${esc(t('quick'))}</span>` : ''}<span class="tile-title">${esc(text(link))}</span>
-    <span class="tile-meta">${esc(desc(link) || (isCategory ? `${childCount} ${t('items')}` : t('open')))} ${icon(isCategory || isInternalMarketLink(link.url, location.href) ? 'chevron-right' : 'external-link')}</span></span>${link.featured ? `<span class="tile-arrow">${icon('arrow-up-right')}</span>` : ''}`;
+    <span class="tile-meta">${esc(desc(link) || (isCategory ? `${childCount} ${t('items')}` : t('open')))} ${icon(isCategory || isInternalMarketLink(link.url, location.href) || isInternalContactsLink(link.url, location.href) ? 'chevron-right' : 'external-link')}</span></span>${link.featured ? `<span class="tile-arrow">${icon('arrow-up-right')}</span>` : ''}`;
   return isCategory
     ? `<button type="button" class="${className}" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>`
     : `<a class="${className}" ${externalLinkAttributes(link.url)}>${inner}</a>`;
 }
 
 function renderHome() {
-  if (!state.portal) return `<main class="main-content"><p>${esc(t('tools'))} …</p></main>`;
+  if (!state.portal) return `<main class="main-content"><p>${esc(t('tools'))} …</p>${['admin','staff'].includes(state.user?.role) ? `<a class="button secondary" href="${CONTACTS_ROUTE}">${icon('users')} ${state.language === 'de' ? 'Messekontakte öffnen' : 'Open trade fair contacts'}</a>` : ''}</main>`;
   const all = state.portal.links;
   const top = all.filter(link => !link.parentId).sort((a,b) => a.position - b.position);
   return `<main class="main-content">
@@ -197,7 +315,7 @@ function renderCategory() {
     ${desc(category) ? `<p class="page-intro">${esc(desc(category))}</p>` : ''}
     <div class="category-links">${children.length ? children.map(link => {
       const nested = !link.url;
-      const inner = `<span class="row-icon">${icon(link.icon)}</span><span><strong>${esc(text(link))}</strong>${desc(link) ? `<small>${esc(desc(link))}</small>` : ''}</span>${icon(nested || isInternalMarketLink(link.url, location.href) ? 'chevron-right' : 'external-link')}`;
+      const inner = `<span class="row-icon">${icon(link.icon)}</span><span><strong>${esc(text(link))}</strong>${desc(link) ? `<small>${esc(desc(link))}</small>` : ''}</span>${icon(nested || isInternalMarketLink(link.url, location.href) || isInternalContactsLink(link.url, location.href) ? 'chevron-right' : 'external-link')}`;
       return nested ? `<button class="category-row" type="button" data-action="open-category" data-id="${esc(link.id)}">${inner}</button>` : `<a class="category-row" ${externalLinkAttributes(link.url)}>${inner}</a>`;
     }).join('') : `<div class="empty-state">${esc(t('notSet'))}</div>`}</div></main>`;
 }
@@ -230,7 +348,7 @@ function renderProfile() {
 
 function adminNav() {
   const tabs = state.user.role === 'admin'
-    ? [['overview','home'],['links','link-2'],['delivery','clock-3'],['market','chart-no-axes-combined'],['users','users'],['messages','bell']]
+    ? [['overview','home'],['links','link-2'],['delivery','clock-3'],['market','chart-no-axes-combined'],['contacts','users'],['users','users'],['messages','bell']]
     : [['delivery','clock-3']];
   return `<aside class="admin-sidebar"><nav class="admin-nav" aria-label="${esc(t('admin'))}">${tabs.map(([tab, symbol]) =>
     `<button type="button" data-action="admin-tab" data-value="${tab}" class="${state.adminTab === tab ? 'active' : ''}" aria-current="${state.adminTab === tab ? 'page' : 'false'}">${icon(symbol)}<span>${esc(t(tab))}</span></button>`).join('')}</nav></aside>`;
@@ -352,7 +470,7 @@ function renderAdminMessages() {
 function renderAdmin() {
   if (state.user.role !== 'admin' && !state.user.canEditLeadTimes) return renderHome();
   const tab = state.user.role === 'admin' ? state.adminTab : 'delivery';
-  const content = tab === 'overview' ? renderOverview() : tab === 'links' ? renderAdminLinks() : tab === 'delivery' ? renderDelivery() : tab === 'market' ? renderAdminMarket() : tab === 'users' ? renderAdminUsers() : renderAdminMessages();
+  const content = tab === 'overview' ? renderOverview() : tab === 'links' ? renderAdminLinks() : tab === 'delivery' ? renderDelivery() : tab === 'market' ? renderAdminMarket() : tab === 'contacts' ? renderAdminContactsPage(state.language) : tab === 'users' ? renderAdminUsers() : renderAdminMessages();
   return `<div class="admin-layout">${adminNav()}<main class="admin-content">${content}</main></div>`;
 }
 
@@ -363,18 +481,23 @@ function renderVisitorCounter() {
 }
 
 function render() {
+  pageCleanup?.(); pageCleanup = null;
   document.documentElement.lang = state.language;
-  const offline = !state.online ? `<div class="offline-banner">${icon('wifi-off')} ${esc(t('offline'))}</div>` : '';
+  const offline = `<div data-connection-banner class="offline-banner" ${state.online && !state.offlineSession ? 'hidden' : ''}>${icon('wifi-off')} ${esc(t('offline'))}</div>`;
   root.innerHTML = state.user
-    ? `<div class="app-shell">${offline}${renderTopbar()}${state.view === 'admin' ? renderAdmin() : state.view === 'category' ? renderCategory() : state.view === 'market' ? renderMarketPage(state.language, ['admin', 'staff'].includes(state.user.role)) : state.view === 'messages' ? renderMessages() : state.view === 'profile' ? renderProfile() : renderHome()}${renderBottomNav()}</div>`
+    ? `<div class="app-shell">${offline}${renderTopbar()}${state.view === 'admin' ? renderAdmin() : state.view === 'category' ? renderCategory() : state.view === 'contacts' ? renderContactsPage(state.language, state.user) : state.view === 'market' ? renderMarketPage(state.language, ['admin', 'staff'].includes(state.user.role)) : state.view === 'messages' ? renderMessages() : state.view === 'profile' ? renderProfile() : renderHome()}${renderBottomNav()}</div>`
     : `${offline}${renderLogin()}`;
   if (state.user && state.view === 'market') mountMarketPage(root, state.language, render);
+  if (state.user && state.view === 'contacts' && contactStore) pageCleanup = mountContactsPage(root, { language: state.language, user: state.user, store: contactStore, api, notify: toast, isOffline: () => state.offlineSession || !state.online });
+  if (state.user?.role === 'admin' && state.view === 'admin' && state.adminTab === 'contacts') pageCleanup = mountAdminContactsPage(root, { language: state.language, user: state.user, api, notify: toast });
+  updateConnectionBanner();
 }
 
 function readRoute() {
   const route = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   if (route.startsWith('category/')) { state.view = 'category'; state.categoryId = route.slice(9); }
   else if (route === 'market/deutschland') state.view = 'market';
+  else if (route === 'contacts') state.view = 'contacts';
   else if (route.startsWith('messages/')) { state.view = 'messages'; state.messageId = route.slice(9); }
   else if (route === 'messages') { state.view = 'messages'; state.messageId = null; }
   else if (route === 'profile') state.view = 'profile';
@@ -382,6 +505,7 @@ function readRoute() {
   else state.view = 'home';
   if (state.view === 'admin' && state.user?.role !== 'admin' && !state.user?.canEditLeadTimes) state.view = 'home';
   if (state.view === 'admin' && state.user?.role !== 'admin') state.adminTab = 'delivery';
+  if (state.offlineSession && state.view !== 'profile') state.view = 'contacts';
   render();
   if (state.view === 'admin') loadAdminTab().catch(error => toast(error.message, true));
   if (state.view === 'market' && ['admin', 'staff'].includes(state.user?.role)) {
@@ -390,11 +514,16 @@ function readRoute() {
 }
 
 async function loadPortal() {
-  state.portal = await api('/api/portal');
-  render();
+  if (state.offlineSession) return;
+  const epoch = sessionEpoch;
+  const portal = await api('/api/portal');
+  if (epoch !== sessionEpoch || !state.user) return;
+  state.portal = portal;
+  if (!contactPageActive()) render();
 }
 
 async function loadAdminTab() {
+  if (state.adminTab === 'contacts') return;
   if (state.user.role !== 'admin' && state.adminTab !== 'delivery') return;
   if (state.adminTab === 'overview') state.overview = await api('/api/admin/overview');
   if (state.adminTab === 'links') {
@@ -421,12 +550,21 @@ async function submitForm(form, submitter) {
   const values = formData(form);
   const kind = form.dataset.form;
   if (kind === 'login') {
+    if (pendingLogout()) await finishPendingLogout();
+    else await logoutTask;
+    const epoch = ++sessionEpoch;
     const result = await api('/api/login', { method: 'POST', data: { username: values.get('username'), password: values.get('password') } });
+    if (epoch !== sessionEpoch) return;
+    try { localStorage.removeItem(PENDING_LOGOUT_KEY); } catch { /* New login replaces any old local sign-out marker. */ }
     state.user = result.user; state.csrf = result.csrfToken; state.pushEnabled = result.pushEnabled; state.vapidPublicKey = result.vapidPublicKey; state.language = result.user.language;
+    state.offlineSession = false; rememberOfflineUser(result.user);
+    await prepareContactStore();
+    if (epoch !== sessionEpoch) return;
     localStorage.setItem('bvl-language', state.language);
-    location.hash = location.hash === MARKET_ROUTE ? MARKET_ROUTE : '#/home';
+    location.hash = [MARKET_ROUTE, CONTACTS_ROUTE].includes(location.hash) ? location.hash : '#/home';
     await loadPortal();
     readRoute();
+    contactStore?.sync();
     return;
   }
   if (kind === 'delivery') {
@@ -487,9 +625,10 @@ async function submitForm(form, submitter) {
 
 async function changeLanguage(language) {
   if (!['de', 'en'].includes(language)) return;
-  if (state.user) {
+  if (state.user && state.online && !state.offlineSession) {
     const result = await api('/api/profile', { method: 'PATCH', data: { language } });
     state.user = result.user;
+    rememberOfflineUser(result.user);
   }
   state.language = language;
   localStorage.setItem('bvl-language', language);
@@ -570,10 +709,10 @@ root.addEventListener('click', async event => {
       location.hash = `#/messages/${encodeURIComponent(id)}`;
     }
     if (action === 'logout') {
-      await api('/api/logout', { method: 'POST', data: {} });
-      resetMarketSession();
-      state.user = null; state.csrf = null; state.portal = null;
+      try { localStorage.setItem(PENDING_LOGOUT_KEY, '1'); } catch { /* Browser session still expires server-side. */ }
+      clearSessionView();
       location.hash = '#/home'; render();
+      void finishPendingLogout();
     }
     if (action === 'admin-tab') location.hash = `#/admin/${value}`;
     if (action === 'new-link') { state.editLinkId = 'new'; state.selectedIcon = 'link-2'; render(); }
@@ -604,14 +743,23 @@ root.addEventListener('click', async event => {
 });
 
 window.addEventListener('hashchange', () => { readRoute(); if (state.user && state.online) loadPortal().catch(() => {}); });
-window.addEventListener('online', () => { state.online = true; render(); if (state.user) loadPortal().catch(() => {}); });
-window.addEventListener('offline', () => { state.online = false; render(); });
+window.addEventListener('online', () => { state.online = true; updateConnectionBanner(); resumeConnection(); });
+window.addEventListener('offline', () => { state.online = false; updateConnectionBanner(); });
+window.addEventListener('storage', event => {
+  if (!state.user) return;
+  if (event.key === PENDING_LOGOUT_KEY && event.newValue === '1') { clearSessionView(false); readRoute(); return; }
+  if (event.key === OFFLINE_USER_KEY) {
+    let next = null;
+    try { next = JSON.parse(event.newValue)?.user; } catch { /* A removed/invalid identity ends this tab's view. */ }
+    if (!next || next.id !== state.user.id || next.role !== state.user.role) { clearSessionView(false); readRoute(); }
+  }
+});
 window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); state.installPrompt = event; render(); });
 let lastReturnRefresh = 0;
 function refreshOnReturn() {
   if (!state.user || !state.online || Date.now() - lastReturnRefresh < 5000) return;
   lastReturnRefresh = Date.now();
-  loadPortal().catch(() => {});
+  resumeConnection();
 }
 window.addEventListener('focus', refreshOnReturn);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOnReturn(); });
@@ -621,15 +769,30 @@ if ('serviceWorker' in navigator) {
 }
 
 async function init() {
+  if (pendingLogout()) { await finishPendingLogout(); readRoute(); return; }
+  const epoch = sessionEpoch;
   try {
     const result = await api('/api/session');
+    if (epoch !== sessionEpoch) return;
     state.user = result.user; state.csrf = result.csrfToken; state.pushEnabled = result.pushEnabled; state.vapidPublicKey = result.vapidPublicKey;
     state.language = result.user.language;
+    rememberOfflineUser(result.user);
+    await prepareContactStore();
     localStorage.setItem('bvl-language', state.language);
     await loadPortal();
-  } catch { /* No session is a normal first-visit state. */ }
+  } catch (error) {
+    if (epoch !== sessionEpoch) return;
+    if ((!error.status || error.status >= 500) && !state.user) {
+      const cached = offlineUser();
+      if (cached) { state.user = cached; state.language = cached.language === 'en' ? 'en' : 'de'; state.offlineSession = true; await prepareContactStore().catch(problem => toast(problem.message, true)); }
+    }
+    if (error.status === 401) clearSessionView();
+  }
   readRoute();
+  if (state.user && !state.offlineSession && state.online) contactStore?.sync();
 }
+
+setInterval(() => { if (!document.hidden && state.user && state.online) resumeConnection(); }, 60000);
 
 render();
 init();

@@ -7,6 +7,7 @@ import { audit, publicUser } from './db.mjs';
 import { clearSessionCookie, hashPassword, parseCookies, randomToken, sessionCookie, tokenHash, validPassword, verifyPassword } from './security.mjs';
 import { createMilkFeed, nextMilkRefreshDelay } from './milk.mjs';
 import { registerVisit } from './visits.mjs';
+import { ContactError, adminContacts, contactsCsv, listContacts, saveContact } from './contacts.mjs';
 
 export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentation','truck','building-2','images','wrench','file-text','folder-open','link-2','book-open','globe','phone','mail','video','chart-no-axes-combined','package','settings','users']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -372,6 +373,33 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       return marketFile(res, pathname);
     }
 
+    if (pathname === '/api/contacts' && method === 'GET') {
+      need(user.role === 'admin' || user.role === 'staff');
+      const query = new URL(req.url, origin).searchParams;
+      need([...query.keys()].every(key => key === 'scope'), 400, 'Unbekannter Kontaktfilter');
+      return json(res, 200, { contacts: listContacts(db, user, query.get('scope')) });
+    }
+    if (pathname === '/api/contacts' && method === 'POST') {
+      need(user.role === 'admin' || user.role === 'staff');
+      return json(res, 200, saveContact(db, user, await body(req, 100000)));
+    }
+    if (pathname === '/api/admin/contacts' && method === 'GET') {
+      need(user.role === 'admin');
+      return json(res, 200, adminContacts(db, new URL(req.url, origin).searchParams));
+    }
+    if (pathname === '/api/admin/contacts/export.csv' && method === 'GET') {
+      need(user.role === 'admin');
+      const { contacts } = adminContacts(db, new URL(req.url, origin).searchParams);
+      const content = Buffer.from(contactsCsv(contacts), 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="bvl-messekontakte.csv"',
+        'Cache-Control': 'no-store',
+        'Content-Length': content.length
+      });
+      return res.end(content);
+    }
+
     if (method === 'POST' && pathname === '/api/logout') {
       db.prepare('DELETE FROM sessions WHERE token_hash=?').run(user.session_hash);
       return json(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie(secure) });
@@ -621,6 +649,9 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       return await staticFile(req, res, pathname);
     } catch (error) {
       if (res.headersSent) return res.end();
+      if (error instanceof ContactError) {
+        return json(res, error.status, { error: error.message, ...(error.status === 409 ? { contact: error.contact } : {}) });
+      }
       if (!(error instanceof HttpError)) console.error('Server error:', error);
       json(res, error.status || 500, { error: error.status ? error.message : 'Interner Fehler' });
     }
