@@ -214,3 +214,137 @@ test('Messekontakte bleiben geschützt, revisionssicher und in bestehender Sales
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('E-Mail-Status bleibt unabhängig von Änderungen erhalten und gelöschte Kontakte kehren nicht zurück', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bvl-contact-actions-'));
+  const file = join(directory, 'sales.sqlite');
+  let db = openDatabase(file);
+  let server;
+  try {
+    const staffId = insertUser(db, 'staff', 'staff');
+    insertUser(db, 'admin', 'admin');
+    insertUser(db, 'other', 'staff');
+    insertUser(db, 'dealer', 'dealer');
+    server = await startServer(db);
+    const { request, login } = server;
+    const staff = await login('staff'), admin = await login('admin'), other = await login('other'), dealer = await login('dealer');
+    const id = randomUUID(), path = `/api/contacts/${id}`;
+    const create = { id, mutationId: randomUUID(), baseRevision: 0, data: data() };
+    const original = await request('/api/contacts', { method: 'POST', auth: staff, data: create });
+    assert.deepEqual(original.payload.contact.communication, { thanksOpenedAt: null, thanksSentAt: null, forwardOpenedAt: null, forwardedAt: null });
+    const opening = { kind: 'thanks', state: 'opened' };
+    for (const method of ['POST', 'DELETE']) {
+      const target = method === 'POST' ? `${path}/communication` : path;
+      assert.equal((await request(target, { method, data: opening })).status, 401);
+      assert.equal((await request(target, { method, data: opening, auth: dealer })).status, 403);
+      assert.equal((await request(target, { method, data: opening, auth: other })).status, 404);
+      assert.equal((await request(target, { method, data: opening, auth: staff, csrf: 'wrong' })).status, 403);
+      assert.equal((await request(target, { method, data: opening, auth: staff, origin: 'https://bad.example' })).status, 403);
+    }
+    const opened = await request(`${path}/communication`, { method: 'POST', auth: staff, data: opening });
+    assert.equal(opened.status, 200);
+    assert.equal(opened.payload.contact.revision, 1);
+    assert.equal(opened.payload.contact.updatedAt, original.payload.contact.updatedAt);
+    assert.ok(Number.isFinite(Date.parse(opened.payload.contact.communication.thanksOpenedAt)));
+    assert.equal(opened.payload.contact.communication.thanksSentAt, null);
+    const openedRetry = await request(`${path}/communication`, { method: 'POST', auth: staff, data: opening });
+    assert.deepEqual(openedRetry.payload, opened.payload);
+    const sent = await request(`${path}/communication`, { method: 'POST', auth: admin, data: { kind: 'thanks', state: 'sent' } });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.payload.contact.communication.thanksOpenedAt, opened.payload.contact.communication.thanksOpenedAt);
+    assert.ok(sent.payload.contact.communication.thanksSentAt);
+    const forwarded = await request(`${path}/communication`, { method: 'POST', auth: staff, data: { kind: 'forward', state: 'sent' } });
+    assert.equal(forwarded.status, 200);
+    assert.ok(forwarded.payload.contact.communication.forwardedAt);
+    assert.equal(forwarded.payload.contact.communication.forwardOpenedAt, forwarded.payload.contact.communication.forwardedAt);
+    assert.equal((await request(`${path}/communication`, { method: 'POST', auth: staff, data: { kind: 'other', state: 'opened' } })).status, 400);
+    assert.equal((await request(`${path}/communication`, { method: 'POST', auth: staff, data: { kind: 'thanks', state: 'delivered' } })).status, 400);
+    assert.equal((await request(`${path}/communication`, { method: 'POST', auth: staff, data: { ...opening, thanksSentAt: 'spoofed' } })).status, 400);
+    const update = { id, mutationId: randomUUID(), baseRevision: 1, data: data('Geänderte Kontaktdaten') };
+    const saved = await request('/api/contacts', { method: 'POST', auth: staff, data: update });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.payload.contact.revision, 2);
+    assert.deepEqual(saved.payload.contact.communication, forwarded.payload.contact.communication);
+    const oldAck = await request('/api/contacts', { method: 'POST', auth: staff, data: create });
+    assert.equal(oldAck.status, 200);
+    assert.deepEqual(oldAck.payload.contact.communication, forwarded.payload.contact.communication);
+    const adminList = await request('/api/admin/contacts', { auth: admin });
+    assert.deepEqual(adminList.payload.contacts[0].communication, forwarded.payload.contact.communication);
+    const csv = await request('/api/admin/contacts/export.csv', { auth: admin });
+    assert.ok(csv.payload.includes('Dankesmail-Versand bestätigt am'));
+    assert.ok(csv.payload.includes(forwarded.payload.contact.communication.forwardedAt));
+    assert.equal((await request(`/api/contacts/${randomUUID()}`, { method: 'DELETE', auth: staff })).status, 404);
+    assert.deepEqual((await request(path, { method: 'DELETE', auth: staff })).payload, { deletedId: id });
+    assert.deepEqual((await request(path, { method: 'DELETE', auth: staff })).payload, { deletedId: id });
+    assert.equal((await request(path, { method: 'DELETE', auth: other })).status, 404);
+    assert.equal((await request(path, { method: 'DELETE', auth: admin })).status, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contacts').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contact_mutations').get().n, 0);
+    assert.equal(db.prepare('SELECT owner_id FROM contact_tombstones WHERE id=?').get(id).owner_id, staffId);
+    const own = await request('/api/contacts?scope=mine', { auth: staff });
+    assert.deepEqual(own.payload.contacts, []);
+    assert.deepEqual(own.payload.deletedIds, [id]);
+    assert.deepEqual((await request('/api/contacts?scope=mine', { auth: admin })).payload.deletedIds, []);
+    assert.deepEqual((await request('/api/contacts', { auth: admin })).payload.deletedIds, [id]);
+    assert.deepEqual((await request('/api/contacts?scope=mine', { auth: other })).payload.deletedIds, []);
+    for (const stale of [create, update, { ...create, mutationId: randomUUID() }]) {
+      assert.equal((await request('/api/contacts', { method: 'POST', auth: staff, data: stale })).status, 410);
+    }
+    assert.equal((await request('/api/contacts', { method: 'POST', auth: other, data: { ...create, mutationId: randomUUID() } })).status, 404);
+    assert.equal((await request(`${path}/communication`, { method: 'POST', auth: staff, data: opening })).status, 410);
+    assert.equal((await request(`${path}/communication`, { method: 'POST', auth: other, data: opening })).status, 404);
+    assert.equal((await request('/api/admin/contacts', { auth: admin })).payload.contacts.length, 0);
+    assert.ok(!(await request('/api/admin/contacts/export.csv', { auth: admin })).payload.includes(id));
+
+    const secondId = `legacy:contact:${randomUUID()}`;
+    await request('/api/contacts', { method: 'POST', auth: staff, data: { ...create, id: secondId, mutationId: randomUUID() } });
+    assert.equal((await request(`/api/contacts/${encodeURIComponent(secondId)}/communication`, { method: 'POST', auth: staff, data: opening })).status, 200);
+    assert.equal((await request(`/api/contacts/${encodeURIComponent(secondId)}`, { method: 'DELETE', auth: admin })).status, 200);
+    await server.stop();
+    server = null;
+    db.close();
+    db = openDatabase(file);
+    server = await startServer(db);
+    const afterRestart = await server.login('staff');
+    const tombstones = await server.request('/api/contacts?scope=mine', { auth: afterRestart });
+    assert.deepEqual(new Set(tombstones.payload.deletedIds), new Set([id, secondId]));
+    assert.equal((await server.request('/api/contacts', { method: 'POST', auth: afterRestart, data: create })).status, 410);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, 4);
+  } finally {
+    if (server) await server.stop().catch(() => {});
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('vorhandene Kontakte und Nutzer überstehen die additive Status-Migration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bvl-contact-status-migration-'));
+  const file = join(directory, 'sales.sqlite');
+  let db = openDatabase(file);
+  try {
+    const ownerId = insertUser(db, 'Bestandsnutzer', 'staff');
+    const existingUser = db.prepare('SELECT * FROM users WHERE id=?').get(ownerId);
+    const id = randomUUID(), payload = JSON.stringify(data('Bestandskontakt'));
+    db.prepare(`INSERT INTO contacts(id,revision,owner_id,owner_name,created_at,updated_at,name,company,email,fair,fair_year,status,priority,payload)
+      VALUES (?,3,?,'Bestandsnutzer','2026-10-01','2026-10-02','Bestandskontakt','Betrieb GmbH','kunde@example.com','EuroTier','2026','new','high',?)`).run(id, ownerId, payload);
+    for (const column of ['thanks_opened_at', 'thanks_sent_at', 'forward_opened_at', 'forwarded_at']) {
+      db.exec(`ALTER TABLE contacts DROP COLUMN ${column}`);
+    }
+    db.exec('DROP TABLE contact_tombstones');
+    db.close();
+    db = openDatabase(file);
+    assert.deepEqual(db.prepare('SELECT * FROM users WHERE id=?').get(ownerId), existingUser);
+    const contact = db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
+    assert.equal(contact.payload, payload);
+    assert.equal(contact.revision, 3);
+    assert.equal(contact.owner_id, ownerId);
+    assert.equal(contact.thanks_opened_at, null);
+    assert.equal(contact.thanks_sent_at, null);
+    assert.equal(contact.forward_opened_at, null);
+    assert.equal(contact.forwarded_at, null);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contact_tombstones').get().n, 0);
+  } finally {
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1,20 +1,22 @@
 // Offline contacts are scoped to one signed-in Sales App account. The server
 // remains authoritative; IndexedDB holds drafts and an unsent mutation queue.
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 const clone = value => structuredClone(value);
 const timestamp = () => new Date().toISOString();
 const uuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const communicationFields = ['thanksOpenedAt', 'thanksSentAt', 'forwardOpenedAt', 'forwardedAt'];
+const communication = (...sources) => Object.fromEntries(communicationFields.map(key => [key, sources.map(source => source?.[key]).find(Boolean) || null]));
 
 function transaction(db, stores, mode, schedule) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(stores, mode);
-    let result;
+    let result, failure;
     tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
-    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+    tx.onerror = () => reject(failure || tx.error || new Error('IndexedDB transaction failed'));
+    tx.onabort = () => reject(failure || tx.error || new Error('IndexedDB transaction aborted'));
     try {
-      schedule(tx, value => { result = value; });
+      schedule(tx, value => { result = value; }, error => { failure = error; tx.abort(); });
     } catch (error) {
       try { tx.abort(); } catch { /* The transaction may already be closed. */ }
       reject(error);
@@ -31,30 +33,37 @@ function openDatabase(userId) {
       if (!db.objectStoreNames.contains('contacts')) db.createObjectStore('contacts', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('activity')) db.createObjectStore('activity', { keyPath: 'key' });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error || new Error('IndexedDB konnte nicht geöffnet werden.'));
     request.onblocked = () => reject(new Error('Lokaler Kontaktspeicher ist in einem anderen Fenster blockiert.'));
   });
 }
 
 function readAll(db) {
-  return transaction(db, ['contacts', 'queue'], 'readonly', (tx, done) => {
+  return transaction(db, ['contacts', 'queue', 'activity'], 'readonly', (tx, done) => {
     const records = tx.objectStore('contacts').getAll();
     const pending = tx.objectStore('queue').getAll();
+    const activities = tx.objectStore('activity').getAll();
     const values = {};
     const ready = () => {
-      if (values.records && values.pending) done(values);
+      if (values.records && values.pending && values.activities) done(values);
     };
     records.onsuccess = () => { values.records = records.result; ready(); };
     pending.onsuccess = () => { values.pending = pending.result; ready(); };
+    activities.onsuccess = () => { values.activities = activities.result; ready(); };
   });
 }
 
 function purgeForeignContacts(db, userId) {
-  return transaction(db, ['contacts', 'queue'], 'readwrite', (tx, done) => {
+  return transaction(db, ['contacts', 'queue', 'activity'], 'readwrite', (tx, done) => {
     const contacts = tx.objectStore('contacts');
     const queue = tx.objectStore('queue');
+    const activity = tx.objectStore('activity');
     const request = contacts.getAll();
     request.onsuccess = () => {
       for (const record of request.result) {
@@ -63,6 +72,13 @@ function purgeForeignContacts(db, userId) {
         queue.delete(record.id);
       }
       done(null);
+    };
+    const actions = activity.getAll();
+    actions.onsuccess = () => {
+      for (const action of actions.result) {
+        const owner = contacts.get(action.id);
+        owner.onsuccess = () => { if (!owner.result || owner.result.ownerId !== userId || owner.result.deleted) activity.delete(action.key); };
+      }
     };
   });
 }
@@ -81,6 +97,7 @@ function normalizeRemote(value) {
     createdAt: value.createdAt || value.updatedAt || timestamp(),
     updatedAt: value.updatedAt || timestamp(),
     data: clone(value.data),
+    communication: communication(value.communication),
     syncState: 'synced'
   };
 }
@@ -111,12 +128,14 @@ export function createContactStore({ user, api, onChange } = {}) {
   let error = null;
   let records = [];
   let pending = [];
+  let activities = [];
+  const deleting = new Set();
   const abort = new AbortController();
 
   function getState() {
     return {
-      contacts: clone(records),
-      pendingCount: pending.length,
+      contacts: clone(records.filter(record => !record.deleted)),
+      pendingCount: new Set([...pending, ...activities].map(item => item.id)).size,
       conflicts: clone(pending.filter(item => item.conflictServer).map(item => ({
         id: item.id,
         local: records.find(record => record.id === item.id) || null,
@@ -141,6 +160,9 @@ export function createContactStore({ user, api, onChange } = {}) {
     if (closed) return;
     records = loaded.records.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     pending = loaded.pending.sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
+    activities = loaded.activities.sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
+    const pendingIds = new Set([...pending, ...activities].map(item => item.id));
+    records = records.map(record => record.deleted ? record : { ...record, communication: communication(record.communication), syncState: pending.some(item => item.id === record.id && item.conflictServer) ? 'conflict' : pendingIds.has(record.id) ? 'pending' : 'synced' });
     emit();
   }
 
@@ -182,13 +204,15 @@ export function createContactStore({ user, api, onChange } = {}) {
   function save(data, id) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return Promise.reject(new TypeError('Kontaktdaten müssen ein Objekt sein.'));
     const contactId = id || uuid();
+    if (deleting.has(contactId)) return Promise.reject(new Error('Kontakt wird gerade gelöscht.'));
     const safeData = clone(data);
-    return enqueue(() => transaction(db, ['contacts', 'queue'], 'readwrite', (tx, done) => {
+    return enqueue(() => transaction(db, ['contacts', 'queue'], 'readwrite', (tx, done, fail) => {
       const contactStore = tx.objectStore('contacts');
       const queueStore = tx.objectStore('queue');
       const contactRequest = contactStore.get(contactId);
       contactRequest.onsuccess = () => {
         const existing = contactRequest.result;
+        if (existing?.deleted) { fail(new Error('Dieser Kontakt wurde gelöscht.')); return; }
         const queueRequest = queueStore.get(contactId);
         queueRequest.onsuccess = () => {
           const previous = queueRequest.result;
@@ -201,6 +225,7 @@ export function createContactStore({ user, api, onChange } = {}) {
             createdAt: existing?.createdAt || time,
             updatedAt: time,
             data: safeData,
+            communication: communication(existing?.communication),
             syncState: previous?.conflictServer ? 'conflict' : 'pending'
           };
           const mutation = {
@@ -220,6 +245,59 @@ export function createContactStore({ user, api, onChange } = {}) {
         };
       };
     }), { local: true });
+  }
+
+  function recordCommunication(id, kind, state) {
+    if (!['thanks', 'forward'].includes(kind) || !['opened', 'sent'].includes(state)) return Promise.reject(new TypeError('Ungültige Mailaktion.'));
+    if (deleting.has(id)) return Promise.reject(new Error('Kontakt wird gerade gelöscht.'));
+    return enqueue(() => transaction(db, ['contacts', 'activity'], 'readwrite', (tx, done, fail) => {
+      const contactStore = tx.objectStore('contacts');
+      const request = contactStore.get(id);
+      request.onsuccess = () => {
+        const record = request.result;
+        if (!record || record.deleted || record.ownerId !== userId) { fail(new Error('Kontakt nicht gefunden oder gelöscht.')); return; }
+        const field = kind === 'thanks' ? state === 'sent' ? 'thanksSentAt' : 'thanksOpenedAt' : state === 'sent' ? 'forwardedAt' : 'forwardOpenedAt';
+        const value = communication(record.communication);
+        if (!value[field]) {
+          const time = timestamp();
+          value[field] = time;
+          if (state === 'sent') value[kind === 'thanks' ? 'thanksOpenedAt' : 'forwardOpenedAt'] ||= time;
+          tx.objectStore('activity').put({ key: `${id}:${kind}:${state}`, id, kind, state, queuedAt: time });
+          contactStore.put({ ...record, communication: value });
+        }
+        done({ ...record, communication: value });
+      };
+    }), { local: true });
+  }
+
+  function discardContact(id) {
+    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta'], 'readwrite', (tx, done) => {
+      tx.objectStore('contacts').put({ id, ownerId: userId, deleted: true });
+      tx.objectStore('queue').delete(id);
+      const actions = tx.objectStore('activity').getAll();
+      actions.onsuccess = () => { for (const action of actions.result) if (action.id === id) tx.objectStore('activity').delete(action.key); };
+      const draft = tx.objectStore('meta').get('draft');
+      draft.onsuccess = () => { if (draft.result?.value?.editingId === id) tx.objectStore('meta').delete('draft'); };
+      done({ deletedId: id });
+    }));
+  }
+
+  async function remove(id) {
+    if (deleting.has(id)) throw new Error('Kontakt wird gerade gelöscht.');
+    if (globalThis.navigator?.onLine === false) throw new Error('Zum Löschen bitte eine Internetverbindung herstellen.');
+    deleting.add(id);
+    try {
+      await init();
+      // Finish any active upload before deleting, including a retry after a
+      // lost acknowledgement. Deletion must never leave an orphan on the VPS.
+      await sync();
+      if (closed) throw new Error('Kontakt-Speicher ist geschlossen.');
+      if (records.find(record => record.id === id)?.deleted) return { deletedId: id };
+      if (error || pending.some(item => item.id === id) || activities.some(item => item.id === id)) throw new Error(error || 'Vor dem Löschen bitte den Kontakt synchronisieren und Änderungskonflikte klären.');
+      const response = await api(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE', signal: abort.signal });
+      if (response?.deletedId !== id) throw new Error('Löschen wurde vom Server nicht bestätigt.');
+      return await discardContact(id);
+    } finally { deleting.delete(id); }
   }
 
   function saveDraft(data) {
@@ -244,9 +322,10 @@ export function createContactStore({ user, api, onChange } = {}) {
     }), { local: true, refresh: false });
   }
 
-  function mergeRemote(remoteContacts) {
+  function mergeRemote(remoteContacts, deletedIds = []) {
     const incoming = remoteContacts.map(normalizeRemote).filter(contact => contact.ownerId === userId);
-    return enqueue(() => transaction(db, ['contacts', 'queue'], 'readwrite', (tx, done) => {
+    const removed = new Set(deletedIds.filter(id => typeof id === 'string'));
+    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta'], 'readwrite', (tx, done) => {
       const contactStore = tx.objectStore('contacts');
       const queueStore = tx.objectStore('queue');
       const localRequest = contactStore.getAll();
@@ -256,19 +335,30 @@ export function createContactStore({ user, api, onChange } = {}) {
         if (!localRows || !queueRows) return;
         const locals = new Map(localRows.map(row => [row.id, row]));
         const queued = new Map(queueRows.map(row => [row.id, row]));
+        for (const id of removed) {
+          contactStore.put({ id, ownerId: userId, deleted: true });
+          queueStore.delete(id);
+        }
+        const actions = tx.objectStore('activity').getAll();
+        actions.onsuccess = () => { for (const action of actions.result) if (removed.has(action.id)) tx.objectStore('activity').delete(action.key); };
+        const draft = tx.objectStore('meta').get('draft');
+        draft.onsuccess = () => { if (removed.has(draft.result?.value?.editingId)) tx.objectStore('meta').delete('draft'); };
         for (const remote of incoming) {
           const local = locals.get(remote.id);
+          if (removed.has(remote.id) || local?.deleted) continue;
           const mutation = queued.get(remote.id);
+          const merged = communication(remote.communication, local?.communication);
           if (mutation) {
+            if (local) contactStore.put({ ...local, communication: merged });
             if (remote.revision > mutation.baseRevision &&
                 JSON.stringify(remote.data) !== JSON.stringify(mutation.data) &&
                 !(mutation.inFlight && remote.revision > mutation.inFlight.baseRevision &&
                   JSON.stringify(remote.data) === JSON.stringify(mutation.inFlight.data))) {
               queueStore.put({ ...mutation, conflictServer: remote });
-              if (local) contactStore.put({ ...local, syncState: 'conflict' });
+              if (local) contactStore.put({ ...local, communication: merged, syncState: 'conflict' });
             }
           } else if (!local || remote.revision >= local.revision) {
-            contactStore.put(remote);
+            contactStore.put({ ...remote, communication: merged });
           }
         }
         done(null);
@@ -307,22 +397,22 @@ export function createContactStore({ user, api, onChange } = {}) {
       queueRequest.onsuccess = () => {
         const latest = queueRequest.result;
         if (!latest) { done(null); return; }
-        if (latest.mutationId === sent.mutationId) {
-          queueStore.delete(sent.id);
-          contactStore.put(remote);
-          done(remote);
-          return;
-        }
-        // A new local edit occurred during POST. Preserve it and advance only
-        // the revision used for its next upload.
-        queueStore.put({ ...latest, baseRevision: remote.revision, inFlight: null });
         const contactRequest = contactStore.get(sent.id);
         contactRequest.onsuccess = () => {
-          if (contactRequest.result) contactStore.put({
-            ...contactRequest.result,
-            revision: remote.revision,
-            syncState: latest.conflictServer ? 'conflict' : 'pending'
-          });
+          const local = contactRequest.result;
+          if (local?.deleted) { queueStore.delete(sent.id); done(null); return; }
+          const merged = communication(remote.communication, local?.communication);
+          if (latest.mutationId === sent.mutationId) {
+            queueStore.delete(sent.id);
+            const accepted = { ...remote, communication: merged };
+            contactStore.put(accepted);
+            done(accepted);
+            return;
+          }
+          // A newer local edit and any mail actions remain intact while only
+          // the revision used for the next upload advances.
+          queueStore.put({ ...latest, baseRevision: remote.revision, inFlight: null });
+          if (local) contactStore.put({ ...local, communication: merged, revision: remote.revision, syncState: latest.conflictServer ? 'conflict' : 'pending' });
           done(null);
         };
       };
@@ -338,31 +428,31 @@ export function createContactStore({ user, api, onChange } = {}) {
       queueRequest.onsuccess = () => {
         const latest = queueRequest.result;
         if (!latest) { done(null); return; }
-        if (remote.revision > sent.baseRevision && JSON.stringify(remote.data) === JSON.stringify(sent.data)) {
-          if (latest.mutationId === sent.mutationId) {
+        const currentRequest = contactStore.get(sent.id);
+        currentRequest.onsuccess = () => {
+          const current = currentRequest.result;
+          if (current?.deleted) { queueStore.delete(sent.id); done(null); return; }
+          remote.communication = communication(remote.communication, current?.communication);
+          if (remote.revision > sent.baseRevision && JSON.stringify(remote.data) === JSON.stringify(sent.data)) {
+            if (latest.mutationId === sent.mutationId) {
+              queueStore.delete(sent.id);
+              contactStore.put(remote);
+              done(remote);
+              return;
+            }
+            queueStore.put({ ...latest, baseRevision: remote.revision, inFlight: null, conflictServer: null });
+            if (current) contactStore.put({ ...current, communication: remote.communication, revision: remote.revision, syncState: 'pending' });
+            done(null);
+            return;
+          }
+          if (JSON.stringify(latest.data) === JSON.stringify(remote.data)) {
             queueStore.delete(sent.id);
             contactStore.put(remote);
             done(remote);
             return;
           }
-          queueStore.put({ ...latest, baseRevision: remote.revision, inFlight: null, conflictServer: null });
-          const contactRequest = contactStore.get(sent.id);
-          contactRequest.onsuccess = () => {
-            if (contactRequest.result) contactStore.put({ ...contactRequest.result, revision: remote.revision, syncState: 'pending' });
-            done(null);
-          };
-          return;
-        }
-        if (JSON.stringify(latest.data) === JSON.stringify(remote.data)) {
-          queueStore.delete(sent.id);
-          contactStore.put(remote);
-          done(remote);
-          return;
-        }
-        queueStore.put({ ...latest, conflictServer: remote });
-        const contactRequest = contactStore.get(sent.id);
-        contactRequest.onsuccess = () => {
-          if (contactRequest.result) contactStore.put({ ...contactRequest.result, syncState: 'conflict' });
+          queueStore.put({ ...latest, conflictServer: remote });
+          if (current) contactStore.put({ ...current, communication: remote.communication, syncState: 'conflict' });
           done(null);
         };
       };
@@ -380,8 +470,12 @@ export function createContactStore({ user, api, onChange } = {}) {
         if (!mutation?.conflictServer) { done(null); return; }
         if (choice === 'server') {
           queueStore.delete(id);
-          contactStore.put(mutation.conflictServer);
-          done(mutation.conflictServer);
+          const request = contactStore.get(id);
+          request.onsuccess = () => {
+            const remote = { ...mutation.conflictServer, communication: communication(mutation.conflictServer.communication, request.result?.communication) };
+            contactStore.put(remote);
+            done(remote);
+          };
           return;
         }
         const nextMutation = {
@@ -407,6 +501,37 @@ export function createContactStore({ user, api, onChange } = {}) {
     }), { local: true });
   }
 
+  function firstActivity() {
+    return enqueue(() => transaction(db, ['activity', 'queue', 'contacts'], 'readonly', (tx, done) => {
+      const actions = tx.objectStore('activity').getAll();
+      const queued = tx.objectStore('queue').getAll();
+      let actionRows, queueRows;
+      const pick = () => {
+        if (!actionRows || !queueRows) return;
+        const blocked = new Set(queueRows.map(item => item.id));
+        done(actionRows.sort((a, b) => a.queuedAt.localeCompare(b.queuedAt)).find(item => !blocked.has(item.id)) || null);
+      };
+      actions.onsuccess = () => { actionRows = actions.result; pick(); };
+      queued.onsuccess = () => { queueRows = queued.result; pick(); };
+    }), { refresh: false });
+  }
+
+  function acceptActivity(action, remoteValue) {
+    const remote = normalizeRemote(remoteValue);
+    return enqueue(() => transaction(db, ['activity', 'contacts'], 'readwrite', (tx, done) => {
+      tx.objectStore('activity').delete(action.key);
+      const store = tx.objectStore('contacts');
+      const request = store.get(action.id);
+      request.onsuccess = () => {
+        const local = request.result;
+        // A mail response must never replace an edit made while the mail
+        // request was in flight. Only its monotonic timestamps are merged.
+        if (local && !local.deleted) store.put({ ...local, communication: communication(remote.communication, local.communication) });
+        done(null);
+      };
+    }));
+  }
+
   async function performSync() {
     syncing = true;
     error = null;
@@ -415,7 +540,7 @@ export function createContactStore({ user, api, onChange } = {}) {
       const result = await api('/api/contacts?scope=mine', { signal: abort.signal });
       if (closed) return;
       if (!Array.isArray(result?.contacts)) throw new Error('Ungültige Kontaktliste vom Server.');
-      await mergeRemote(result.contacts);
+      await mergeRemote(result.contacts, result.deletedIds || []);
       while (!closed) {
         const mutation = await firstPending();
         if (!mutation || closed) break;
@@ -434,6 +559,7 @@ export function createContactStore({ user, api, onChange } = {}) {
           await acceptMutation(mutation, response?.contact);
         } catch (requestError) {
           if (closed) break;
+          if (requestError?.status === 410) { await discardContact(mutation.id); continue; }
           if (requestError?.status !== 409) throw requestError;
           let server = remoteFromError(requestError);
           if (!server) {
@@ -443,6 +569,21 @@ export function createContactStore({ user, api, onChange } = {}) {
           }
           if (!server) throw new Error('Konflikt erkannt, aber Serverfassung fehlt.');
           await recordConflict(mutation, server);
+        }
+      }
+      while (!closed) {
+        const action = await firstActivity();
+        if (!action || closed) break;
+        try {
+          const response = await api(`/api/contacts/${encodeURIComponent(action.id)}/communication`, {
+            method: 'POST', signal: abort.signal, data: { kind: action.kind, state: action.state }
+          });
+          if (closed) break;
+          await acceptActivity(action, response?.contact);
+        } catch (failure) {
+          if (closed) break;
+          if (failure?.status === 410) { await discardContact(action.id); continue; }
+          throw failure;
         }
       }
     } catch (failure) {
@@ -467,6 +608,7 @@ export function createContactStore({ user, api, onChange } = {}) {
     listeners.clear();
     records = [];
     pending = [];
+    activities = [];
     syncing = false;
     error = null;
     // Do not close an active local transaction: it must be durable even when
@@ -474,5 +616,5 @@ export function createContactStore({ user, api, onChange } = {}) {
     void Promise.allSettled([work, initPromise || Promise.resolve()]).then(() => db?.close());
   }
 
-  return { init, getState, subscribe, save, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
+  return { init, getState, subscribe, save, remove, recordCommunication, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
 }

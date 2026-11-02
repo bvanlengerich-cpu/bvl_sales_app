@@ -144,6 +144,11 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
       created_at TEXT NOT NULL,
       PRIMARY KEY (actor_id,mutation_id)
     );
+    CREATE TABLE IF NOT EXISTS contact_tombstones (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS app_migrations (
       name TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL
@@ -155,6 +160,10 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
   }
   if (!leadColumns.has('v_load_weeks')) {
     db.exec('ALTER TABLE lead_times ADD COLUMN v_load_weeks INTEGER CHECK (v_load_weeks BETWEEN 1 AND 52)');
+  }
+  const contactColumns = new Set(db.prepare('PRAGMA table_info(contacts)').all().map(column => column.name));
+  for (const column of ['thanks_opened_at', 'thanks_sent_at', 'forward_opened_at', 'forwarded_at']) {
+    if (!contactColumns.has(column)) db.exec(`ALTER TABLE contacts ADD COLUMN ${column} TEXT`);
   }
   seedLinks(db);
   seedContactsLink(db);

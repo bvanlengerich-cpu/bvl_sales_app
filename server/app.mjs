@@ -7,7 +7,7 @@ import { audit, publicUser } from './db.mjs';
 import { clearSessionCookie, hashPassword, parseCookies, randomToken, sessionCookie, tokenHash, validPassword, verifyPassword } from './security.mjs';
 import { createMilkFeed, nextMilkRefreshDelay } from './milk.mjs';
 import { registerVisit } from './visits.mjs';
-import { ContactError, adminContacts, contactsCsv, listContacts, saveContact } from './contacts.mjs';
+import { ContactError, adminContacts, contactsCsv, deleteContact, listContacts, listDeletedContactIds, recordContactCommunication, saveContact } from './contacts.mjs';
 
 export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentation','truck','building-2','images','wrench','file-text','folder-open','link-2','book-open','globe','phone','mail','video','chart-no-axes-combined','package','settings','users']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -377,11 +377,25 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       need(user.role === 'admin' || user.role === 'staff');
       const query = new URL(req.url, origin).searchParams;
       need([...query.keys()].every(key => key === 'scope'), 400, 'Unbekannter Kontaktfilter');
-      return json(res, 200, { contacts: listContacts(db, user, query.get('scope')) });
+      return json(res, 200, { contacts: listContacts(db, user, query.get('scope')), deletedIds: listDeletedContactIds(db, user, query.get('scope')) });
     }
     if (pathname === '/api/contacts' && method === 'POST') {
       need(user.role === 'admin' || user.role === 'staff');
       return json(res, 200, saveContact(db, user, await body(req, 100000)));
+    }
+    const contactAction = pathname.match(/^\/api\/contacts\/([^/]+)(\/communication)?$/);
+    let contactActionId;
+    if (contactAction) {
+      try { contactActionId = decodeURIComponent(contactAction[1]); }
+      catch { throw new HttpError(400, 'Ungültige Kontakt-ID'); }
+    }
+    if (contactAction && method === 'DELETE' && !contactAction[2]) {
+      need(user.role === 'admin' || user.role === 'staff');
+      return json(res, 200, deleteContact(db, user, contactActionId));
+    }
+    if (contactAction && method === 'POST' && contactAction[2]) {
+      need(user.role === 'admin' || user.role === 'staff');
+      return json(res, 200, recordContactCommunication(db, user, contactActionId, await body(req, 2000)));
     }
     if (pathname === '/api/admin/contacts' && method === 'GET') {
       need(user.role === 'admin');

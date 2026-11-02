@@ -101,6 +101,12 @@ function contactRow(row) {
     ownerName: row.owner_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    communication: {
+      thanksOpenedAt: row.thanks_opened_at ?? null,
+      thanksSentAt: row.thanks_sent_at ?? null,
+      forwardOpenedAt: row.forward_opened_at ?? null,
+      forwardedAt: row.forwarded_at ?? null
+    },
     data: JSON.parse(row.payload)
   };
 }
@@ -111,6 +117,77 @@ export function listContacts(db, user, scope = null) {
     ? db.prepare('SELECT * FROM contacts ORDER BY updated_at DESC,id').all()
     : db.prepare('SELECT * FROM contacts WHERE owner_id=? ORDER BY updated_at DESC,id').all(user.id);
   return rows.map(contactRow);
+}
+
+export function listDeletedContactIds(db, user, scope = null) {
+  if (scope !== null && scope !== 'mine') invalid('Ungültiger Kontaktbereich');
+  const rows = user.role === 'admin' && scope !== 'mine'
+    ? db.prepare('SELECT id FROM contact_tombstones').all()
+    : db.prepare('SELECT id FROM contact_tombstones WHERE owner_id=?').all(user.id);
+  return rows.map(row => row.id);
+}
+
+function checkContactId(id) {
+  if (typeof id !== 'string' || !idPattern.test(id)) invalid('Ungültige Kontakt-ID');
+}
+
+function visibleContact(db, user, id) {
+  checkContactId(id);
+  const tombstone = db.prepare('SELECT owner_id FROM contact_tombstones WHERE id=?').get(id);
+  if (tombstone) {
+    if (user.role !== 'admin' && tombstone.owner_id !== user.id) throw new ContactError(404, 'Kontakt nicht gefunden');
+    throw new ContactError(410, 'Dieser Kontakt wurde gelöscht');
+  }
+  const existing = db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
+  if (existing && user.role !== 'admin' && existing.owner_id !== user.id) throw new ContactError(404, 'Kontakt nicht gefunden');
+  return existing;
+}
+
+export function recordContactCommunication(db, user, id, input) {
+  if (!input || Array.isArray(input) || typeof input !== 'object' ||
+    Object.keys(input).some(key => !['kind', 'state'].includes(key)) ||
+    !['thanks', 'forward'].includes(input.kind) || !['opened', 'sent'].includes(input.state)) invalid('Ungültiger E-Mail-Status');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!visibleContact(db, user, id)) throw new ContactError(404, 'Kontakt nicht gefunden');
+    const stamp = new Date().toISOString();
+    const opened = input.kind === 'thanks' ? 'thanks_opened_at' : 'forward_opened_at';
+    const sent = input.kind === 'thanks' ? 'thanks_sent_at' : 'forwarded_at';
+    const assignments = input.state === 'sent'
+      ? `${opened}=COALESCE(${opened},?),${sent}=COALESCE(${sent},?)`
+      : `${opened}=COALESCE(${opened},?)`;
+    db.prepare(`UPDATE contacts SET ${assignments} WHERE id=?`)
+      .run(...(input.state === 'sent' ? [stamp, stamp, id] : [stamp, id]));
+    const contact = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id));
+    db.exec('COMMIT');
+    return { contact };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+export function deleteContact(db, user, id) {
+  checkContactId(id);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const tombstone = db.prepare('SELECT owner_id FROM contact_tombstones WHERE id=?').get(id);
+    if (tombstone) {
+      if (user.role !== 'admin' && tombstone.owner_id !== user.id) throw new ContactError(404, 'Kontakt nicht gefunden');
+    } else {
+      const existing = visibleContact(db, user, id);
+      if (!existing) throw new ContactError(404, 'Kontakt nicht gefunden');
+      db.prepare('INSERT INTO contact_tombstones (id,owner_id,deleted_at) VALUES (?,?,?)')
+        .run(id, existing.owner_id, new Date().toISOString());
+      db.prepare("DELETE FROM contact_mutations WHERE json_extract(response_json,'$.contact.id')=?").run(id);
+      db.prepare('DELETE FROM contacts WHERE id=?').run(id);
+    }
+    db.exec('COMMIT');
+    return { deletedId: id };
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function saveContact(db, user, input) {
@@ -124,17 +201,17 @@ export function saveContact(db, user, input) {
   const requestHash = createHash('sha256').update(JSON.stringify({ id, baseRevision, data })).digest('hex');
   db.exec('BEGIN IMMEDIATE');
   try {
+    // Check tombstones before mutation acknowledgements: a lost old ACK must
+    // never reintroduce the payload of a contact deleted in the meantime.
+    const existing = visibleContact(db, user, id);
     const prior = db.prepare('SELECT request_hash,response_json FROM contact_mutations WHERE actor_id=? AND mutation_id=?')
       .get(user.id, mutationId);
     if (prior) {
       if (prior.request_hash !== requestHash) throw new ContactError(409, 'Änderungs-ID bereits verwendet');
       const response = JSON.parse(prior.response_json);
+      response.contact.communication = contactRow(existing).communication;
       db.exec('COMMIT');
       return response;
-    }
-    const existing = db.prepare('SELECT * FROM contacts WHERE id=?').get(id);
-    if (existing && user.role !== 'admin' && existing.owner_id !== user.id) {
-      throw new ContactError(404, 'Kontakt nicht gefunden');
     }
     if ((existing?.revision || 0) !== baseRevision) {
       throw new ContactError(409, 'Kontakt wurde zwischenzeitlich geändert', contactRow(existing));
@@ -214,7 +291,8 @@ const csvHeaders = [
   'ID', 'Erfasst am', 'Aktualisiert am', 'Bearbeiter', 'Messe', 'Messejahr', 'Name', 'Betrieb',
   'E-Mail', 'Telefon', 'Mobil', 'Straße', 'PLZ', 'Ort', 'Land', 'Kundensprache', 'Interesse',
   'Anfragen', 'Notiz', 'Priorität', 'Status', 'Nachfassen', 'Kühe', 'Vorhandene Maschine',
-  'Baujahr', 'Volumen', 'Kaufzeitpunkt'
+  'Baujahr', 'Volumen', 'Kaufzeitpunkt', 'Dankesmail-Entwurf geöffnet am',
+  'Dankesmail-Versand bestätigt am', 'Weiterleitungsentwurf geöffnet am', 'Weiterleitung bestätigt am'
 ];
 
 function csvCell(value) {
@@ -231,7 +309,8 @@ export function contactsCsv(contacts) {
       d.name, d.company, d.email, d.phone, d.mobile, d.street, d.postalCode, d.city, d.country,
       d.customerLanguage, d.interests.map(item => [item.family, item.model, item.variant, item.detail].filter(Boolean).join(' / ')).join(' | '),
       d.requests.join(' | '), d.notes, d.priority, d.status, d.followUp, d.cows, d.currentMachine,
-      d.machineYear, d.volume, d.purchaseTime
+      d.machineYear, d.volume, d.purchaseTime, contact.communication?.thanksOpenedAt,
+      contact.communication?.thanksSentAt, contact.communication?.forwardOpenedAt, contact.communication?.forwardedAt
     ];
   });
   return `\uFEFF${[csvHeaders, ...rows].map(row => row.map(csvCell).join(';')).join('\r\n')}\r\n`;

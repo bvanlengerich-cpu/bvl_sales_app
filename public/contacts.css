@@ -75,12 +75,30 @@
 .contact-sync-conflict { background: #fff0f1; color: #a51125; }
 .contact-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .contact-card-actions .button { font-size: 11px; }
+.contact-communications { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.contact-communications .contact-status { white-space: normal; }
+.contact-mail-opened { background: #edf2f7; color: var(--metal-dark); }
+.contact-mail-confirmed { background: #edf7f0; color: var(--success); }
+.contact-no-communication { color: var(--muted); font-size: 11px; }
+.contact-communication-hint { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.contact-delete { margin-left: auto; }
+.contact-table-actions { display: flex; align-items: flex-start; flex-direction: column; gap: 8px; }
+.contact-table-actions .contact-delete { margin-left: 0; }
+.contact-table .contact-communications { min-width: 170px; max-width: 230px; margin-top: 0; }
+.contact-table .contact-communications .contact-status { font-size: 10px; }
 .contact-empty { display: grid; justify-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 20px; padding: 45px 20px; background: #fff; text-align: center; }
 .contact-empty > .icon { width: 32px; height: 32px; color: var(--metal); }
 .contact-empty h2 { margin: 0; font-size: 18px; }
 .contact-empty p { max-width: 440px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .contact-dialog { width: min(680px, calc(100% - 28px)); max-height: calc(100dvh - 35px); border: 1px solid var(--line); border-radius: 22px; padding: 0; background: #fff; color: var(--ink); box-shadow: 0 25px 80px #15273355; }
 .contact-dialog::backdrop { background: #132b3b85; backdrop-filter: blur(3px); }
+.contact-delete-dialog { max-width: 460px; }
+.contact-delete-question { padding: 25px 24px 10px; }
+.contact-delete-question > .icon { width: 30px; height: 30px; color: var(--red); }
+.contact-delete-question h2 { margin: 15px 0 14px; font-size: 21px; }
+.contact-delete-question strong { display: block; overflow-wrap: anywhere; }
+.contact-delete-question p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.contact-delete-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 10px 24px 24px; }
 .contact-dialog-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--line); padding: 20px 22px 16px; background: #fff; }
 .contact-dialog-head h2 { margin: 0; font-size: 23px; letter-spacing: -.03em; overflow-wrap: anywhere; }
 .contact-dialog-head .eyebrow { margin-top: 0; }
@@ -140,6 +158,7 @@
   .contact-list-filters { grid-template-columns: minmax(0, 1fr); }
   .contact-cards { grid-template-columns: minmax(0, 1fr); }
   .contact-card-actions .button { min-height: 39px; }
+  .contact-card-actions .contact-delete { margin-left: 0; }
   .contact-details { grid-template-columns: minmax(0, 1fr); }
   .contact-dialog-head { padding: 18px; }
   .contact-dialog-head h2 { font-size: 21px; }

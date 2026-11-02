@@ -196,7 +196,7 @@ async function api(path, { method = 'GET', data, signal } = {}) {
   }
   const response = await fetch(path, {
     method, credentials: 'same-origin', signal,
-    headers: data === undefined ? {} : { 'Content-Type': 'application/json', ...(state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
+    headers: { ...(data === undefined ? {} : { 'Content-Type': 'application/json' }), ...(!['GET', 'HEAD'].includes(method) && state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
     body: data === undefined ? undefined : JSON.stringify(data),
     cache: 'no-store'
   });

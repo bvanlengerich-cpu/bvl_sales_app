@@ -10,6 +10,30 @@ const words = {
     title: 'Trade fair contacts', intro: 'Capture good conversations. Keep things moving.', back: 'Back', capture: 'Capture contact', mine: 'My contacts', new: 'New contact', edit: 'Edit contact', save: 'Save contact', saving: 'Saving …', saved: 'Contact saved on this device.', draft: 'Draft is being saved on this device.', draftSaved: 'Draft saved on this device.', localError: 'The draft could not be saved locally. Please do not close this page.', fair: 'Trade fair / event', year: 'Fair year', seller: 'Captured by', context: 'Your trade fair', contextHint: 'Fair and year are reused for the next contact.', person: 'Contact', personHint: 'Name and fair are required. Everything else can be added later.', name: 'Contact name', company: 'Farm / company', email: 'Email address', phone: 'Telephone', mobile: 'Mobile', address: 'Address & customer language', street: 'Street / house number', postalCode: 'Postal code', city: 'City', country: 'Country', customerLanguage: 'Customer language', interests: 'Interest & machine', interestHint: 'You can add several interests or save without selecting a product.', family: 'Product range', model: 'Machine type', variant: 'Configuration', detail: 'Requirement / description', addInterest: 'Add interest', remove: 'Remove', choose: 'Please select', next: 'Next step', requests: 'Agreed actions', visit: 'Customer visit', offer: 'Quotation', demo: 'Demonstration', service: 'Service / complaint', notes: 'Conversation notes', notesHint: 'What was discussed or agreed?', followUp: 'Follow up on', priority: 'Priority', normal: 'Normal', high: 'High', low: 'Low', status: 'Contact status', statusNew: 'New', statusProgress: 'In progress', statusDone: 'Completed', more: 'Additional machine details', cows: 'Number of cows', currentMachine: 'Existing machine / brand', machineYear: 'Year of manufacture', volume: 'Required volume / size', purchaseTime: 'Planned purchase', sync: 'Sync now', syncing: 'Syncing …', synced: 'Synchronized with the server', pending: 'Not synchronized yet', conflict: 'Conflicting changes', offline: 'Offline: contacts stay on this device for now. Sync resumes with a connection while the app is open.', waiting: 'contact(s) waiting to sync', error: 'Sync is currently unavailable. Local changes remain saved.', mail: 'Open thank-you email', mailHint: 'Opens an editable draft in your email app. You confirm sending there.', noEmail: 'A valid email address is required for a thank-you email.', savedNext: 'What would you like to do next?', search: 'Search name, company or city', allFairs: 'All fairs', allYears: 'All years', allStatus: 'All statuses', allPriority: 'All priorities', allOwners: 'All staff', empty: 'No trade fair contacts yet', emptyHint: 'Saved conversations appear here, including contacts still waiting to sync.', noResults: 'No matching contacts found.', details: 'Details', created: 'Created', updated: 'Last updated', close: 'Close', yourVersion: 'Your local version', serverVersion: 'Server version', conflictHint: 'This contact has changed since your last sync. Choose which version to continue with.', keepLocal: 'Use my version', keepServer: 'Use server version', resolve: 'Resolve conflict', unavailable: 'Trade fair contacts are available only to BvL staff and admins.', adminIntro: 'All fair conversations in one place. Filter, review and export for follow-up.', loading: 'Loading contacts …', loadError: 'Contacts could not be loaded.', retry: 'Reload', total: 'Contacts in filter', fairs: 'Trade fairs', export: 'Export filtered contacts as CSV', exportSelected: 'Export selection as CSV', exportHint: 'CSV files can be opened in Excel. Exports contain saved server data.', selected: 'selected', selectAll: 'Select all displayed contacts', select: 'Select contact', exporting: 'Creating export …', exportError: 'Export could not be created.', serverOnly: 'This overview shows contacts synchronized to the VPS.', contact: 'Contact', date: 'Date', local: 'Saved locally', dismiss: 'Dismiss', nothingSelected: 'Please select contacts first.'
   }
 };
+Object.assign(words.de, {
+  forward: 'Kontakt weiterleiten', communication: 'E-Mail-Aktivitäten', noCommunication: 'Noch keine E-Mail-Aktion',
+  thanksOpened: 'Dankesmail-Entwurf geöffnet', thanksSent: 'Dankesmail als versendet bestätigt',
+  forwardOpened: 'Weiterleitungsentwurf geöffnet', forwarded: 'Weiterleitung bestätigt',
+  confirmThanks: 'Dankesmail als versendet markieren', confirmForward: 'Weiterleitung bestätigen',
+  communicationHint: 'Die Mail-App meldet keinen Versand zurück. Nach dem Senden bitte hier bestätigen.',
+  communicationError: 'Die E-Mail-Aktivität konnte nicht gespeichert werden. Bitte erneut versuchen.',
+  communicationSaved: 'E-Mail-Aktivität gespeichert.', delete: 'Kontakt löschen', deleted: 'Kontakt gelöscht.',
+  deleteQuestion: 'Diesen Kontakt endgültig löschen?', deleteHint: 'Der Kontakt wird für alle Geräte und aus der Admin-Übersicht entfernt.',
+  deleteOnline: 'Zum Löschen bitte eine Internetverbindung herstellen.', deleteError: 'Kontakt konnte nicht gelöscht werden.',
+  forwardedBy: 'Weitergeleitet von', contactId: 'Kontakt-ID', cancel: 'Abbrechen'
+});
+Object.assign(words.en, {
+  forward: 'Forward contact', communication: 'Email activity', noCommunication: 'No email activity yet',
+  thanksOpened: 'Thank-you draft opened', thanksSent: 'Thank-you email confirmed as sent',
+  forwardOpened: 'Forwarding draft opened', forwarded: 'Forwarding confirmed',
+  confirmThanks: 'Mark thank-you email as sent', confirmForward: 'Confirm forwarding',
+  communicationHint: 'Your email app does not report sending. Please confirm here after sending.',
+  communicationError: 'Email activity could not be saved. Please try again.',
+  communicationSaved: 'Email activity saved.', delete: 'Delete contact', deleted: 'Contact deleted.',
+  deleteQuestion: 'Permanently delete this contact?', deleteHint: 'The contact will be removed from all devices and the admin overview.',
+  deleteOnline: 'Please connect to the internet to delete contacts.', deleteError: 'Contact could not be deleted.',
+  forwardedBy: 'Forwarded by', contactId: 'Contact ID', cancel: 'Cancel'
+});
 const labels = language => words[language === 'en' ? 'en' : 'de'];
 const statuses = l => [['new', l.statusNew], ['in_progress', l.statusProgress], ['done', l.statusDone]];
 const priorities = l => [['normal', l.normal], ['high', l.high], ['low', l.low]];
@@ -41,14 +65,57 @@ export function buildContactMailto(contact, user = {}) {
   const signature = String(user.displayName || contact.ownerName || 'BvL').trim();
   const subject = english ? `Thank you for your visit · ${fair}` : `Vielen Dank für Ihren Besuch · ${fair}`;
   const body = english
-    ? `Hello${person ? ` ${person}` : ''},\r\n\r\nThank you for visiting us at ${fair} and for the pleasant conversation.${products ? `\r\n\r\nWe were pleased to discuss your interest in ${products}.` : ''}\r\n\r\nPlease feel free to contact me if you have any questions. I look forward to staying in touch.\r\n\r\nKind regards\r\n${signature}\r\nBvL`
-    : `Guten Tag${person ? ` ${person}` : ''},\r\n\r\nvielen Dank für Ihren Besuch auf der ${fair} und das angenehme Gespräch.${products ? `\r\n\r\nGerne greifen wir Ihr Interesse an ${products} auf.` : ''}\r\n\r\nBei Fragen bin ich gerne für Sie da. Ich freue mich auf den weiteren Austausch.\r\n\r\nMit freundlichen Grüßen\r\n${signature}\r\nBvL`;
+    ? `Hello${person ? ` ${person}` : ''},\r\n\r\nThank you for visiting us at ${fair} and for the pleasant conversation.${products ? `\r\n\r\nWe would be happy to follow up on your interest in the following product(s): ${products}.` : ''}\r\n\r\nPlease feel free to contact me if you have any questions. I look forward to staying in touch.\r\n\r\nKind regards\r\n${signature}\r\nBvL`
+    : `Guten Tag${person ? ` ${person}` : ''},\r\n\r\nvielen Dank für Ihren Besuch auf der ${fair} und das angenehme Gespräch.${products ? `\r\n\r\nGerne greifen wir Ihr Interesse an folgendem/n Produkt/en auf: ${products}.` : ''}\r\n\r\nBei Fragen bin ich gerne für Sie da. Ich freue mich auf den weiteren Austausch.\r\n\r\nMit freundlichen Grüßen\r\n${signature}\r\nBvL`;
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function mailLink(contact, user, l, className = 'button secondary small') {
   const href = buildContactMailto(contact, user);
-  return href ? `<a class="${className}" href="${esc(href)}">${icon('mail')} ${esc(l.mail)}</a>` : `<button class="${className}" type="button" disabled title="${esc(l.noEmail)}">${icon('mail')} ${esc(l.mail)}</button>`;
+  return href ? `<a class="${className}" href="${esc(href)}" data-contact-action="mail-thanks" data-id="${esc(contact.id)}">${icon('mail')} ${esc(l.mail)}</a>` : `<button class="${className}" type="button" disabled title="${esc(l.noEmail)}">${icon('mail')} ${esc(l.mail)}</button>`;
+}
+
+export function buildContactForwardMailto(contact, user = {}, language = 'de') {
+  const l = labels(language), d = contact?.data || contact || {};
+  const value = (caption, content) => content !== undefined && content !== null && content !== '' ? `${caption}: ${content}` : null;
+  const lines = [
+    value(l.contactId, contact?.id), value(l.name, d.name), value(l.company, d.company),
+    value(l.email, d.email), value(l.phone, d.phone), value(l.mobile, d.mobile),
+    value(l.street, d.street), value(l.postalCode, d.postalCode), value(l.city, d.city), value(l.country, d.country),
+    value(l.customerLanguage, d.customerLanguage), value(l.fair, d.fair), value(l.year, d.fairYear),
+    value(l.seller, contact?.ownerName), value(l.created, contact?.createdAt), value(l.updated, contact?.updatedAt),
+    '', `${l.interests}:`, ...(d.interests || []).map((item, index) => `${index + 1}. ${[item.family, item.model, item.variant, item.detail].filter(Boolean).join(' / ')}`),
+    '', value(l.requests, (d.requests || []).map(key => requestLabels(l)[key] || key).join(', ')),
+    value(l.status, new Map(statuses(l)).get(d.status) || d.status), value(l.priority, new Map(priorities(l)).get(d.priority) || d.priority),
+    value(l.followUp, d.followUp), value(l.cows, d.cows), value(l.currentMachine, d.currentMachine),
+    value(l.machineYear, d.machineYear), value(l.volume, d.volume), value(l.purchaseTime, d.purchaseTime),
+    '', value(l.notes, d.notes), '', value(l.forwardedBy, user.displayName || user.username || contact?.ownerName || 'BvL')
+  ].filter(line => line !== null);
+  const heading = language === 'en' ? 'Trade fair contact' : 'Messekontakt';
+  const subject = `${heading} · ${d.name || d.company || 'BvL'}${d.fair ? ` · ${d.fair}` : ''}`.replace(/[\r\n]+/g, ' ');
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\r\n'))}`;
+}
+
+function forwardLink(contact, user, l, language) {
+  return `<a class="button secondary small" href="${esc(buildContactForwardMailto(contact, user, language))}" data-contact-action="mail-forward" data-id="${esc(contact.id)}">${icon('arrow-up-right')} ${esc(l.forward)}</a>`;
+}
+
+function communicationHtml(record, l, language) {
+  const c = record.communication || {};
+  const entries = [
+    [c.thanksSentAt || c.thanksOpenedAt, c.thanksSentAt ? l.thanksSent : l.thanksOpened, !!c.thanksSentAt],
+    [c.forwardedAt || c.forwardOpenedAt, c.forwardedAt ? l.forwarded : l.forwardOpened, !!c.forwardedAt]
+  ].filter(([stamp]) => stamp);
+  return `<div class="contact-communications" aria-label="${esc(l.communication)}">${entries.length ? entries.map(([stamp, caption, confirmed]) => `<span class="contact-status ${confirmed ? 'contact-mail-confirmed' : 'contact-mail-opened'}" title="${esc(stamp)}">${icon(confirmed ? 'check' : 'mail')} ${esc(caption)} · ${esc(date(stamp, language))}</span>`).join('') : `<span class="contact-no-communication">${esc(l.noCommunication)}</span>`}</div>`;
+}
+
+function communicationActions(record, l) {
+  const c = record.communication || {};
+  return `${c.thanksOpenedAt && !c.thanksSentAt ? `<button class="button secondary small" type="button" data-contact-action="confirm-thanks" data-id="${esc(record.id)}">${icon('check')} ${esc(l.confirmThanks)}</button>` : ''}${c.forwardOpenedAt && !c.forwardedAt ? `<button class="button secondary small" type="button" data-contact-action="confirm-forward" data-id="${esc(record.id)}">${icon('check')} ${esc(l.confirmForward)}</button>` : ''}`;
+}
+
+function deleteButton(record, l) {
+  return `<button class="button danger small contact-delete" type="button" data-contact-action="delete" data-id="${esc(record.id)}">${icon('trash-2')} ${esc(l.delete)}</button>`;
 }
 
 function field(l, name, type = 'text', { required = false, max = 160, wide = false, inputmode = '', autocomplete = '' } = {}) {
@@ -90,7 +157,7 @@ function syncBadge(record, l) {
 
 function cardHtml(record, l, language, user) {
   const data = record.data || {}, conflict = record.syncState === 'conflict';
-  return `<article class="contact-list-card"><div class="contact-list-card-top"><div><p class="contact-card-fair">${esc(data.fair)} · ${esc(data.fairYear)}</p><h2>${esc(data.name || data.company)}</h2>${data.company && data.name ? `<p class="contact-company">${esc(data.company)}</p>` : ''}</div><span class="contact-priority contact-priority-${esc(data.priority)}">${esc(new Map(priorities(l)).get(data.priority) || l.normal)}</span></div><div class="contact-card-meta"><span>${[data.postalCode, data.city].filter(Boolean).map(esc).join(' ') || '—'}</span><span>${esc(date(record.createdAt, language))}</span></div>${productText(data) ? `<p class="contact-product">${esc(productText(data))}</p>` : ''}<div class="contact-card-state">${syncBadge(record, l)}<span>${esc(new Map(statuses(l)).get(data.status) || l.statusNew)}</span></div><div class="contact-card-actions"><button class="button secondary small" type="button" data-contact-action="details" data-id="${esc(record.id)}">${esc(l.details)}</button><button class="button secondary small" type="button" data-contact-action="edit" data-id="${esc(record.id)}">${icon('edit-3')} ${esc(l.edit)}</button>${mailLink(record, user, l)}${conflict ? `<button class="button danger small" type="button" data-contact-action="conflict" data-id="${esc(record.id)}">${esc(l.resolve)}</button>` : ''}</div></article>`;
+  return `<article class="contact-list-card"><div class="contact-list-card-top"><div><p class="contact-card-fair">${esc(data.fair)} · ${esc(data.fairYear)}</p><h2>${esc(data.name || data.company)}</h2>${data.company && data.name ? `<p class="contact-company">${esc(data.company)}</p>` : ''}</div><span class="contact-priority contact-priority-${esc(data.priority)}">${esc(new Map(priorities(l)).get(data.priority) || l.normal)}</span></div><div class="contact-card-meta"><span>${[data.postalCode, data.city].filter(Boolean).map(esc).join(' ') || '—'}</span><span>${esc(date(record.createdAt, language))}</span></div>${productText(data) ? `<p class="contact-product">${esc(productText(data))}</p>` : ''}<div class="contact-card-state">${syncBadge(record, l)}<span>${esc(new Map(statuses(l)).get(data.status) || l.statusNew)}</span></div>${communicationHtml(record, l, language)}<div class="contact-card-actions"><button class="button secondary small" type="button" data-contact-action="details" data-id="${esc(record.id)}">${esc(l.details)}</button><button class="button secondary small" type="button" data-contact-action="edit" data-id="${esc(record.id)}">${icon('edit-3')} ${esc(l.edit)}</button>${mailLink(record, user, l)}${forwardLink(record, user, l, language)}${communicationActions(record, l)}${deleteButton(record, l)}${conflict ? `<button class="button danger small" type="button" data-contact-action="conflict" data-id="${esc(record.id)}">${esc(l.resolve)}</button>` : ''}</div><p class="contact-communication-hint">${esc(l.communicationHint)}</p></article>`;
 }
 
 function detailHtml(record, l, language, user) {
@@ -104,12 +171,44 @@ function detailHtml(record, l, language, user) {
     [l.requests, (d.requests || []).map(key => requestLabels(l)[key] || key).join(', ')],
     [l.cows, d.cows], [l.currentMachine, d.currentMachine], [l.machineYear, d.machineYear], [l.volume, d.volume], [l.purchaseTime, d.purchaseTime], [l.notes, d.notes]
   ].filter(([, value]) => value !== '' && value != null);
-  return `<div class="contact-dialog-head"><div><p class="eyebrow">${esc(l.contact)}</p><h2>${esc(d.name || d.company)}</h2></div><button class="contact-dialog-close" type="button" data-contact-action="close" aria-label="${esc(l.close)}">×</button></div><dl class="contact-details">${values.map(([caption, value]) => `<div><dt>${esc(caption)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl><div class="contact-dialog-footer">${mailLink(record, user, l, 'button primary')}<p>${esc(l.mailHint)}</p></div>`;
+  return `<div class="contact-dialog-head" data-contact-details-id="${esc(record.id)}"><div><p class="eyebrow">${esc(l.contact)}</p><h2>${esc(d.name || d.company)}</h2></div><button class="contact-dialog-close" type="button" data-contact-action="close" aria-label="${esc(l.close)}">×</button></div><dl class="contact-details">${values.map(([caption, value]) => `<div><dt>${esc(caption)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl><div class="contact-dialog-footer">${communicationHtml(record, l, language)}<div class="contact-card-actions">${mailLink(record, user, l, 'button primary')}${forwardLink(record, user, l, language)}${communicationActions(record, l)}${deleteButton(record, l)}</div><p>${esc(l.mailHint)} ${esc(l.communicationHint)}</p></div>`;
 }
 
 function showDialog(dialog, html) {
   dialog.innerHTML = html;
   if (!dialog.open) dialog.showModal();
+}
+
+function confirmDelete(record, l, parent) {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    const titleId = `contact-delete-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+    dialog.className = 'contact-dialog contact-delete-dialog';
+    dialog.setAttribute('aria-labelledby', titleId);
+    dialog.innerHTML = `<div class="contact-delete-question">${icon('trash-2')}<h2 id="${esc(titleId)}">${esc(l.deleteQuestion)}</h2><strong>${esc(record.data.name || record.data.company)}</strong><p>${esc(l.deleteHint)}</p></div><div class="contact-delete-confirm-actions"><button class="button secondary" type="button" data-delete-confirm="cancel" autofocus>${esc(l.cancel)}</button><button class="button danger" type="button" data-delete-confirm="delete">${esc(l.delete)}</button></div>`;
+    let finished = false;
+    const finish = value => {
+      if (finished) return;
+      finished = true;
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+    dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
+    dialog.addEventListener('close', () => finish(false));
+    dialog.addEventListener('click', event => {
+      event.stopPropagation();
+      const button = event.target.closest('[data-delete-confirm]');
+      if (button) finish(button.dataset.deleteConfirm === 'delete');
+    });
+    parent.append(dialog);
+    dialog.showModal();
+    dialog.querySelector('[data-delete-confirm="cancel"]').focus();
+  });
+}
+
+function adminRow(record, selected, l, language) {
+  return `<tr><td><input type="checkbox" data-contact-select="${esc(record.id)}" aria-label="${esc(l.select)}: ${esc(record.data.name || record.data.company)}"${selected.has(record.id) ? ' checked' : ''}></td><td><strong>${esc(record.data.name || record.data.company)}</strong>${record.data.company && record.data.name ? `<small>${esc(record.data.company)}</small>` : ''}<small>${esc(record.data.email || [record.data.postalCode, record.data.city].filter(Boolean).join(' '))}</small></td><td>${esc(record.data.fair)}<small>${esc(record.data.fairYear)}</small></td><td>${esc(record.ownerName)}</td><td><span class="contact-status contact-work-${esc(record.data.status)}">${esc(new Map(statuses(l)).get(record.data.status) || l.statusNew)}</span>${record.data.priority === 'high' ? `<small class="contact-priority-high">${esc(l.high)}</small>` : ''}</td><td>${communicationHtml(record, l, language)}</td><td>${esc(date(record.createdAt, language))}</td><td><div class="contact-table-actions"><button class="button secondary small" type="button" data-admin-contact-action="details" data-id="${esc(record.id)}">${esc(l.details)}</button>${deleteButton(record, l)}</div></td></tr>`;
 }
 
 export function mountContactsPage(container, { language = 'de', user, store, notify = () => {}, isOffline = () => !navigator.onLine } = {}) {
@@ -172,11 +271,21 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     page.querySelector('[data-contact-fair]').innerHTML = options([['', l.allFairs], ...fairs.map(fair => [fair, fair])], currentFair);
     const filtered = records.filter(record => (!currentFair || record.data?.fair === currentFair) && (!query || [record.data?.name, record.data?.company, record.data?.email, record.data?.city].join(' ').toLocaleLowerCase().includes(query)));
     page.querySelector('[data-contact-list]').innerHTML = filtered.length ? `<div class="contact-cards">${filtered.map(record => cardHtml(record, l, language, user)).join('')}</div>` : `<div class="contact-empty">${icon('users')}<h2>${esc(records.length ? l.noResults : l.empty)}</h2>${!records.length ? `<p>${esc(l.emptyHint)}</p>` : ''}</div>`;
+    const shownId = dialog.querySelector('[data-contact-details-id]')?.dataset.contactDetailsId;
+    if (dialog.open && shownId) {
+      const shownRecord = records.find(record => record.id === shownId);
+      if (shownRecord) dialog.innerHTML = detailHtml(shownRecord, l, language, user);
+      else dialog.close();
+    }
+    if (editingId && !records.some(record => record.id === editingId)) {
+      clearTimeout(draftTimer); fill(); void store.clearDraft().catch(() => {});
+    }
+    if (latestSaved && !records.some(record => record.id === latestSaved.id)) { latestSaved = null; page.querySelector('[data-contact-saved]').hidden = true; }
     if (latestSaved) {
       const saved = records.find(record => record.id === latestSaved.id) || latestSaved;
       const panel = page.querySelector('[data-contact-saved]');
       panel.hidden = false;
-      panel.innerHTML = `<div><span class="contact-success-icon">${icon('check')}</span><h2>${esc(l.saved)}</h2><p>${esc(saved.data.name || saved.data.company)} · ${esc(saved.data.fair)}</p>${syncBadge(saved, l)}</div><div class="contact-card-actions">${mailLink(saved, user, l, 'button primary')}<button class="button secondary" type="button" data-contact-action="dismiss-saved">${esc(l.new)}</button></div><small>${esc(l.mailHint)}</small>`;
+      panel.innerHTML = `<div><span class="contact-success-icon">${icon('check')}</span><h2>${esc(l.saved)}</h2><p>${esc(saved.data.name || saved.data.company)} · ${esc(saved.data.fair)}</p>${syncBadge(saved, l)}${communicationHtml(saved, l, language)}</div><div class="contact-card-actions">${mailLink(saved, user, l, 'button primary')}${forwardLink(saved, user, l, language)}${communicationActions(saved, l)}<button class="button secondary" type="button" data-contact-action="dismiss-saved">${esc(l.new)}</button></div><small>${esc(l.mailHint)} ${esc(l.communicationHint)}</small>`;
     }
   }
   async function onSubmit(event) {
@@ -212,6 +321,30 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     if (!button) return;
     const action = button.dataset.contactAction, id = button.dataset.id;
     const record = ownContacts().find(item => item.id === id);
+    if (['mail-thanks', 'mail-forward', 'confirm-thanks', 'confirm-forward'].includes(action) && record) {
+      const kind = action.endsWith('thanks') ? 'thanks' : 'forward', state = action.startsWith('mail-') ? 'opened' : 'sent';
+      // Keep the anchor's native mailto navigation synchronous; tracking is independent.
+      void store.recordCommunication(id, kind, state).then(() => {
+        if (!disposed) { refresh(); if (state === 'sent') notify(l.communicationSaved); }
+        void store.sync().catch(() => {});
+      }).catch(error => { if (!disposed) notify(error.message || l.communicationError, true); });
+      return;
+    }
+    if (action === 'delete' && record) {
+      if (isOffline()) { notify(l.deleteOnline, true); return; }
+      if (!await confirmDelete(record, l, page) || disposed) return;
+      button.disabled = true;
+      try {
+        await store.remove(id);
+        if (disposed) return;
+        if (latestSaved?.id === id) { latestSaved = null; page.querySelector('[data-contact-saved]').hidden = true; }
+        if (editingId === id) { clearTimeout(draftTimer); fill(); await store.clearDraft(); }
+        if (disposed) return;
+        if (dialog.open) dialog.close();
+        refresh(); notify(l.deleted);
+      } catch (error) { if (!disposed) { button.disabled = false; notify(error.message || l.deleteError, true); } }
+      return;
+    }
     if (action === 'close') dialog.close();
     if (action === 'sync') void store.sync().catch(error => { if (!disposed) notify(error.message || l.error, true); });
     if (action === 'add-interest' && page.querySelectorAll('[data-contact-interest]').length < 30) { page.querySelector('[data-contact-interests]').insertAdjacentHTML('beforeend', interestHtml({}, l)); changed(); }
@@ -248,7 +381,11 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   fill();
   const unsubscribe = store.subscribe ? store.subscribe(refresh) : () => {};
   refresh();
-  store.getDraft().then(draft => { if (!disposed && !formEdited && draft) fill(draft.data || draft, draft.editingId || null); }).catch(() => {});
+  store.getDraft().then(draft => {
+    if (disposed || formEdited || !draft) return;
+    if (draft.editingId && !ownContacts().some(record => record.id === draft.editingId)) { void store.clearDraft().catch(() => {}); return; }
+    fill(draft.data || draft, draft.editingId || null);
+  }).catch(() => {});
   form.addEventListener('submit', onSubmit);
   form.addEventListener('input', changed); form.addEventListener('change', changed);
   page.addEventListener('click', onClick);
@@ -285,7 +422,7 @@ export function mountAdminContactsPage(container, { language = 'de', user, api, 
   function renderResults() {
     page.querySelector('[data-contact-admin-total]').textContent = contacts.length;
     const allSelected = contacts.length > 0 && contacts.every(contact => selected.has(contact.id));
-    page.querySelector('[data-contact-admin-results]').innerHTML = contacts.length ? `<div class="contact-table-wrap"><table class="contact-table"><thead><tr><th><input type="checkbox" data-contact-select-all aria-label="${esc(l.selectAll)}"${allSelected ? ' checked' : ''}></th><th>${esc(l.contact)}</th><th>${esc(l.fair)}</th><th>${esc(l.seller)}</th><th>${esc(l.status)}</th><th>${esc(l.date)}</th><th>${esc(l.details)}</th></tr></thead><tbody>${contacts.map(record => `<tr><td><input type="checkbox" data-contact-select="${esc(record.id)}" aria-label="${esc(l.select)}: ${esc(record.data.name || record.data.company)}"${selected.has(record.id) ? ' checked' : ''}></td><td><strong>${esc(record.data.name || record.data.company)}</strong>${record.data.company && record.data.name ? `<small>${esc(record.data.company)}</small>` : ''}<small>${esc(record.data.email || [record.data.postalCode, record.data.city].filter(Boolean).join(' '))}</small></td><td>${esc(record.data.fair)}<small>${esc(record.data.fairYear)}</small></td><td>${esc(record.ownerName)}</td><td><span class="contact-status contact-work-${esc(record.data.status)}">${esc(new Map(statuses(l)).get(record.data.status) || l.statusNew)}</span>${record.data.priority === 'high' ? `<small class="contact-priority-high">${esc(l.high)}</small>` : ''}</td><td>${esc(date(record.createdAt, language))}</td><td><button class="button secondary small" type="button" data-admin-contact-action="details" data-id="${esc(record.id)}">${esc(l.details)}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="contact-empty">${icon('users')}<h2>${esc(l.noResults)}</h2></div>`;
+    page.querySelector('[data-contact-admin-results]').innerHTML = contacts.length ? `<div class="contact-table-wrap"><table class="contact-table"><thead><tr><th><input type="checkbox" data-contact-select-all aria-label="${esc(l.selectAll)}"${allSelected ? ' checked' : ''}></th><th>${esc(l.contact)}</th><th>${esc(l.fair)}</th><th>${esc(l.seller)}</th><th>${esc(l.status)}</th><th>${esc(l.communication)}</th><th>${esc(l.date)}</th><th>${esc(l.details)}</th></tr></thead><tbody>${contacts.map(record => adminRow(record, selected, l, language)).join('')}</tbody></table></div>` : `<div class="contact-empty">${icon('users')}<h2>${esc(l.noResults)}</h2></div>`;
     updateActions();
   }
   async function load() {
@@ -342,10 +479,41 @@ export function mountAdminContactsPage(container, { language = 'de', user, api, 
       const all = page.querySelector('[data-contact-select-all]'); if (all) all.checked = contacts.every(record => selected.has(record.id));
     }
   }
+  async function recordActivity(id, kind, state, button) {
+    if (state === 'sent') button.disabled = true;
+    try {
+      const result = await api(`/api/contacts/${encodeURIComponent(id)}/communication`, { method: 'POST', data: { kind, state } });
+      if (disposed) return;
+      sequence++; loading = false;
+      contacts = contacts.map(record => record.id === id ? result.contact : record);
+      renderResults();
+      if (dialog.open && dialog.querySelector('[data-contact-details-id]')?.dataset.contactDetailsId === id) dialog.innerHTML = detailHtml(result.contact, l, language, user);
+      if (state === 'sent') notify(l.communicationSaved);
+    } catch (error) { if (!disposed) { button.disabled = false; notify(error.message || l.communicationError, true); } }
+  }
+  async function removeContact(record, button) {
+    if (!navigator.onLine) { notify(l.deleteOnline, true); return; }
+    if (!await confirmDelete(record, l, page) || disposed) return;
+    button.disabled = true;
+    try {
+      await api(`/api/contacts/${encodeURIComponent(record.id)}`, { method: 'DELETE' });
+      if (disposed) return;
+      sequence++; loading = false;
+      contacts = contacts.filter(item => item.id !== record.id); selected.delete(record.id);
+      if (dialog.open) dialog.close();
+      renderResults(); notify(l.deleted); await load();
+    } catch (error) { if (!disposed) { button.disabled = false; notify(error.message || l.deleteError, true); } }
+  }
   function onClick(event) {
-    const button = event.target.closest('[data-admin-contact-action], [data-contact-action="close"]');
+    const button = event.target.closest('[data-admin-contact-action], [data-contact-action]');
     if (!button) return;
     if (button.dataset.contactAction === 'close') { dialog.close(); return; }
+    const contactAction = button.dataset.contactAction, record = contacts.find(item => item.id === button.dataset.id);
+    if (['mail-thanks', 'mail-forward', 'confirm-thanks', 'confirm-forward'].includes(contactAction) && record) {
+      void recordActivity(record.id, contactAction.endsWith('thanks') ? 'thanks' : 'forward', contactAction.startsWith('mail-') ? 'opened' : 'sent', button);
+      return;
+    }
+    if (contactAction === 'delete' && record) { void removeContact(record, button); return; }
     const action = button.dataset.adminContactAction;
     if (action === 'reload') void load();
     if (action === 'export') void exportCsv(false);
