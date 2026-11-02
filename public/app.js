@@ -189,17 +189,18 @@ function externalLinkAttributes(url) {
   return `href="${esc(destination.href)}"${destination.newTab ? ' target="_blank" rel="noopener noreferrer"' : ''}`;
 }
 
-async function api(path, { method = 'GET', data, signal } = {}) {
+async function api(path, { method = 'GET', data, blob, responseType = 'json', signal } = {}) {
   if (state.offlineSession && path !== '/api/session' && path !== '/api/login') {
     const error = new Error(state.language === 'de' ? 'Für diese Funktion bitte zuerst wieder online anmelden.' : 'Please reconnect and sign in to use this function.');
     error.status = 503; throw error;
   }
   const response = await fetch(path, {
     method, credentials: 'same-origin', signal,
-    headers: { ...(data === undefined ? {} : { 'Content-Type': 'application/json' }), ...(!['GET', 'HEAD'].includes(method) && state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
-    body: data === undefined ? undefined : JSON.stringify(data),
+    headers: { ...(blob ? { 'Content-Type': 'image/jpeg' } : data === undefined ? {} : { 'Content-Type': 'application/json' }), ...(!['GET', 'HEAD'].includes(method) && state.csrf ? { 'X-CSRF-Token': state.csrf } : {}) },
+    body: blob || (data === undefined ? undefined : JSON.stringify(data)),
     cache: 'no-store'
   });
+  if (response.ok && responseType === 'blob') return response.blob();
   let payload = {};
   try { payload = await response.json(); } catch { /* A network/proxy error may not be JSON. */ }
   if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.status = response.status; error.payload = payload; throw error; }

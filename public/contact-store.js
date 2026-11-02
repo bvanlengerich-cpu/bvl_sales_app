@@ -1,12 +1,14 @@
 // Offline contacts are scoped to one signed-in Sales App account. The server
 // remains authoritative; IndexedDB holds drafts and an unsent mutation queue.
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 
 const clone = value => structuredClone(value);
 const timestamp = () => new Date().toISOString();
 const uuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const communicationFields = ['thanksOpenedAt', 'thanksSentAt', 'forwardOpenedAt', 'forwardedAt'];
 const communication = (...sources) => Object.fromEntries(communicationFields.map(key => [key, sources.map(source => source?.[key]).find(Boolean) || null]));
+const photoIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const photoMetadata = photo => ({ id: photo.id, bytes: photo.bytes || photo.blob?.size || 0, width: photo.width || 0, height: photo.height || 0, createdAt: photo.createdAt || null });
 
 function transaction(db, stores, mode, schedule) {
   return new Promise((resolve, reject) => {
@@ -34,6 +36,7 @@ function openDatabase(userId) {
       if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('activity')) db.createObjectStore('activity', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'id' });
     };
     request.onsuccess = () => {
       request.result.onversionchange = () => request.result.close();
@@ -45,22 +48,24 @@ function openDatabase(userId) {
 }
 
 function readAll(db) {
-  return transaction(db, ['contacts', 'queue', 'activity'], 'readonly', (tx, done) => {
+  return transaction(db, ['contacts', 'queue', 'activity', 'photos'], 'readonly', (tx, done) => {
     const records = tx.objectStore('contacts').getAll();
     const pending = tx.objectStore('queue').getAll();
     const activities = tx.objectStore('activity').getAll();
+    const photos = tx.objectStore('photos').getAll();
     const values = {};
     const ready = () => {
-      if (values.records && values.pending && values.activities) done(values);
+      if (values.records && values.pending && values.activities && values.photos) done(values);
     };
     records.onsuccess = () => { values.records = records.result; ready(); };
     pending.onsuccess = () => { values.pending = pending.result; ready(); };
     activities.onsuccess = () => { values.activities = activities.result; ready(); };
+    photos.onsuccess = () => { values.photos = photos.result; ready(); };
   });
 }
 
 function purgeForeignContacts(db, userId) {
-  return transaction(db, ['contacts', 'queue', 'activity'], 'readwrite', (tx, done) => {
+  return transaction(db, ['contacts', 'queue', 'activity', 'photos'], 'readwrite', (tx, done) => {
     const contacts = tx.objectStore('contacts');
     const queue = tx.objectStore('queue');
     const activity = tx.objectStore('activity');
@@ -78,6 +83,13 @@ function purgeForeignContacts(db, userId) {
       for (const action of actions.result) {
         const owner = contacts.get(action.id);
         owner.onsuccess = () => { if (!owner.result || owner.result.ownerId !== userId || owner.result.deleted) activity.delete(action.key); };
+      }
+    };
+    const images = tx.objectStore('photos').getAll();
+    images.onsuccess = () => {
+      for (const image of images.result) {
+        const owner = contacts.get(image.contactId);
+        owner.onsuccess = () => { if (!owner.result || owner.result.ownerId !== userId || owner.result.deleted) tx.objectStore('photos').delete(image.id); };
       }
     };
   });
@@ -98,6 +110,7 @@ function normalizeRemote(value) {
     updatedAt: value.updatedAt || timestamp(),
     data: clone(value.data),
     communication: communication(value.communication),
+    photos: Array.isArray(value.photos) ? value.photos.map(photoMetadata) : [],
     syncState: 'synced'
   };
 }
@@ -129,13 +142,14 @@ export function createContactStore({ user, api, onChange } = {}) {
   let records = [];
   let pending = [];
   let activities = [];
+  let photos = [];
   const deleting = new Set();
   const abort = new AbortController();
 
   function getState() {
     return {
       contacts: clone(records.filter(record => !record.deleted)),
-      pendingCount: new Set([...pending, ...activities].map(item => item.id)).size,
+      pendingCount: new Set([...pending, ...activities, ...photos.filter(photo => photo.pending).map(photo => ({ id: photo.contactId }))].map(item => item.id)).size,
       conflicts: clone(pending.filter(item => item.conflictServer).map(item => ({
         id: item.id,
         local: records.find(record => record.id === item.id) || null,
@@ -161,8 +175,9 @@ export function createContactStore({ user, api, onChange } = {}) {
     records = loaded.records.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     pending = loaded.pending.sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
     activities = loaded.activities.sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
-    const pendingIds = new Set([...pending, ...activities].map(item => item.id));
-    records = records.map(record => record.deleted ? record : { ...record, communication: communication(record.communication), syncState: pending.some(item => item.id === record.id && item.conflictServer) ? 'conflict' : pendingIds.has(record.id) ? 'pending' : 'synced' });
+    photos = loaded.photos;
+    const pendingIds = new Set([...pending, ...activities, ...photos.filter(photo => photo.pending).map(photo => ({ id: photo.contactId }))].map(item => item.id));
+    records = records.map(record => record.deleted ? record : { ...record, photos: photos.filter(photo => photo.contactId === record.id && !photo.removed && photo.pending !== 'delete').map(photoMetadata), communication: communication(record.communication), syncState: pending.some(item => item.id === record.id && item.conflictServer) ? 'conflict' : pendingIds.has(record.id) ? 'pending' : 'synced' });
     emit();
   }
 
@@ -201,12 +216,19 @@ export function createContactStore({ user, api, onChange } = {}) {
     return job;
   }
 
-  function save(data, id) {
+  function save(data, id, desiredPhotos) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return Promise.reject(new TypeError('Kontaktdaten müssen ein Objekt sein.'));
+    if (desiredPhotos !== undefined && (!Array.isArray(desiredPhotos) || desiredPhotos.length > 2 ||
+        new Set(desiredPhotos.map(photo => photo?.id)).size !== desiredPhotos.length || desiredPhotos.some(photo =>
+          !photo || !photoIdPattern.test(photo.id) || (photo.blob !== undefined && (!(photo.blob instanceof Blob) ||
+            photo.blob.type !== 'image/jpeg' || photo.blob.size < 1 || photo.blob.size > 250 * 1024))))) {
+      return Promise.reject(new TypeError('Bitte höchstens zwei komprimierte JPEG-Fotos mit jeweils maximal 250 KB verwenden.'));
+    }
     const contactId = id || uuid();
     if (deleting.has(contactId)) return Promise.reject(new Error('Kontakt wird gerade gelöscht.'));
     const safeData = clone(data);
-    return enqueue(() => transaction(db, ['contacts', 'queue'], 'readwrite', (tx, done, fail) => {
+    const safePhotos = desiredPhotos === undefined ? undefined : clone(desiredPhotos);
+    return enqueue(() => transaction(db, ['contacts', 'queue', 'photos'], 'readwrite', (tx, done, fail) => {
       const contactStore = tx.objectStore('contacts');
       const queueStore = tx.objectStore('queue');
       const contactRequest = contactStore.get(contactId);
@@ -226,6 +248,7 @@ export function createContactStore({ user, api, onChange } = {}) {
             updatedAt: time,
             data: safeData,
             communication: communication(existing?.communication),
+            photos: existing?.photos || [],
             syncState: previous?.conflictServer ? 'conflict' : 'pending'
           };
           const mutation = {
@@ -241,7 +264,34 @@ export function createContactStore({ user, api, onChange } = {}) {
           };
           contactStore.put(contact);
           queueStore.put(mutation);
-          done(contact);
+          if (safePhotos === undefined) { done(contact); return; }
+          const imageStore = tx.objectStore('photos');
+          const imageRequest = imageStore.getAll();
+          imageRequest.onsuccess = () => {
+            const existingRows = imageRequest.result.filter(photo => photo.contactId === contactId);
+            const known = new Map(imageRequest.result.map(photo => [photo.id, photo]));
+            const wanted = new Set(safePhotos.map(photo => photo.id));
+            const nextPhotos = [];
+            for (const photo of safePhotos) {
+              const previousPhoto = known.get(photo.id);
+              if (previousPhoto && (previousPhoto.contactId !== contactId || previousPhoto.removed || previousPhoto.pending === 'delete')) {
+                fail(new Error('Dieses Foto wurde bereits entfernt. Bitte erneut mit neuer Aufnahme hinzufügen.')); return;
+              }
+              if (!previousPhoto && !photo.blob) { fail(new Error('Bilddatei fehlt. Bitte das Foto erneut hinzufügen.')); return; }
+              const row = previousPhoto || { ...photoMetadata(photo), contactId, blob: photo.blob, createdAt: time, pending: 'put', queuedAt: time, serverKnown: false, inFlight: null };
+              if (!row.blob && photo.blob) row.blob = photo.blob;
+              imageStore.put(row);
+              nextPhotos.push(photoMetadata(row));
+            }
+            for (const row of existingRows) {
+              if (wanted.has(row.id) || row.removed) continue;
+              if (!row.serverKnown && !row.inFlight && !row.attempted) imageStore.put({ id: row.id, contactId, removed: true, pending: null });
+              else imageStore.put({ ...row, pending: 'delete', queuedAt: time });
+            }
+            contact.photos = nextPhotos;
+            contactStore.put(contact);
+            done(contact);
+          };
         };
       };
     }), { local: true });
@@ -271,13 +321,15 @@ export function createContactStore({ user, api, onChange } = {}) {
   }
 
   function discardContact(id) {
-    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta'], 'readwrite', (tx, done) => {
+    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta', 'photos'], 'readwrite', (tx, done) => {
       tx.objectStore('contacts').put({ id, ownerId: userId, deleted: true });
       tx.objectStore('queue').delete(id);
       const actions = tx.objectStore('activity').getAll();
       actions.onsuccess = () => { for (const action of actions.result) if (action.id === id) tx.objectStore('activity').delete(action.key); };
       const draft = tx.objectStore('meta').get('draft');
       draft.onsuccess = () => { if (draft.result?.value?.editingId === id) tx.objectStore('meta').delete('draft'); };
+      const images = tx.objectStore('photos').getAll();
+      images.onsuccess = () => { for (const image of images.result) if (image.contactId === id) tx.objectStore('photos').delete(image.id); };
       done({ deletedId: id });
     }));
   }
@@ -293,7 +345,7 @@ export function createContactStore({ user, api, onChange } = {}) {
       await sync();
       if (closed) throw new Error('Kontakt-Speicher ist geschlossen.');
       if (records.find(record => record.id === id)?.deleted) return { deletedId: id };
-      if (error || pending.some(item => item.id === id) || activities.some(item => item.id === id)) throw new Error(error || 'Vor dem Löschen bitte den Kontakt synchronisieren und Änderungskonflikte klären.');
+      if (error || pending.some(item => item.id === id) || activities.some(item => item.id === id) || photos.some(photo => photo.contactId === id && photo.pending)) throw new Error(error || 'Vor dem Löschen bitte den Kontakt synchronisieren und Änderungskonflikte klären.');
       const response = await api(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE', signal: abort.signal });
       if (response?.deletedId !== id) throw new Error('Löschen wurde vom Server nicht bestätigt.');
       return await discardContact(id);
@@ -322,23 +374,61 @@ export function createContactStore({ user, api, onChange } = {}) {
     }), { local: true, refresh: false });
   }
 
+  async function getPhotos(id) {
+    const localPhotos = await enqueue(() => transaction(db, ['contacts', 'photos'], 'readonly', (tx, done, fail) => {
+      const owner = tx.objectStore('contacts').get(id);
+      owner.onsuccess = () => {
+        if (!owner.result || owner.result.deleted || owner.result.ownerId !== userId) { fail(new Error('Kontakt nicht gefunden oder gelöscht.')); return; }
+        const request = tx.objectStore('photos').getAll();
+        request.onsuccess = () => done(request.result.filter(photo => photo.contactId === id && !photo.removed && photo.pending !== 'delete'));
+      };
+    }), { refresh: false });
+    const result = [];
+    for (const photo of localPhotos || []) {
+      if (closed) return [];
+      if (photo.blob) { result.push({ ...photoMetadata(photo), blob: photo.blob }); continue; }
+      try {
+        const blob = await api(`/api/contacts/${encodeURIComponent(id)}/photos/${encodeURIComponent(photo.id)}`, { responseType: 'blob', signal: abort.signal });
+        if (closed) return [];
+        if (!(blob instanceof Blob) || !blob.size || blob.size > 250 * 1024 || blob.type !== 'image/jpeg') throw new Error('Ungültiges Foto vom Server.');
+        const cached = await enqueue(() => transaction(db, ['photos'], 'readwrite', (tx, done) => {
+          const imageStore = tx.objectStore('photos');
+          const request = imageStore.get(photo.id);
+          request.onsuccess = () => {
+            const current = request.result;
+            if (!current || current.removed || current.pending === 'delete') { done(false); return; }
+            imageStore.put({ ...current, blob }); done(true);
+          };
+        }), { refresh: false });
+        if (cached) result.push({ ...photoMetadata(photo), blob });
+      } catch (failure) {
+        if (closed) return [];
+        result.push({ ...photoMetadata(photo), loadError: errorMessage(failure) });
+      }
+    }
+    return result;
+  }
+
   function mergeRemote(remoteContacts, deletedIds = []) {
     const incoming = remoteContacts.map(normalizeRemote).filter(contact => contact.ownerId === userId);
     const removed = new Set(deletedIds.filter(id => typeof id === 'string'));
-    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta'], 'readwrite', (tx, done) => {
+    return enqueue(() => transaction(db, ['contacts', 'queue', 'activity', 'meta', 'photos'], 'readwrite', (tx, done) => {
       const contactStore = tx.objectStore('contacts');
       const queueStore = tx.objectStore('queue');
       const localRequest = contactStore.getAll();
       const queueRequest = queueStore.getAll();
-      let localRows, queueRows;
+      const imageRequest = tx.objectStore('photos').getAll();
+      let localRows, queueRows, imageRows;
       const merge = () => {
-        if (!localRows || !queueRows) return;
+        if (!localRows || !queueRows || !imageRows) return;
         const locals = new Map(localRows.map(row => [row.id, row]));
         const queued = new Map(queueRows.map(row => [row.id, row]));
         for (const id of removed) {
           contactStore.put({ id, ownerId: userId, deleted: true });
           queueStore.delete(id);
         }
+        const imageStore = tx.objectStore('photos');
+        for (const image of imageRows) if (removed.has(image.contactId)) imageStore.delete(image.id);
         const actions = tx.objectStore('activity').getAll();
         actions.onsuccess = () => { for (const action of actions.result) if (removed.has(action.id)) tx.objectStore('activity').delete(action.key); };
         const draft = tx.objectStore('meta').get('draft');
@@ -346,6 +436,16 @@ export function createContactStore({ user, api, onChange } = {}) {
         for (const remote of incoming) {
           const local = locals.get(remote.id);
           if (removed.has(remote.id) || local?.deleted) continue;
+          const remoteImages = new Map(remote.photos.map(photo => [photo.id, photo]));
+          const localImages = new Map(imageRows.filter(photo => photo.contactId === remote.id).map(photo => [photo.id, photo]));
+          for (const photo of remote.photos) {
+            const previousPhoto = localImages.get(photo.id);
+            if (previousPhoto?.removed || previousPhoto?.pending) continue;
+            imageStore.put({ ...photo, contactId: remote.id, blob: previousPhoto?.blob, serverKnown: true, pending: null });
+          }
+          for (const photo of localImages.values()) {
+            if (!photo.pending && !photo.removed && !remoteImages.has(photo.id)) imageStore.put({ id: photo.id, contactId: remote.id, removed: true, pending: null });
+          }
           const mutation = queued.get(remote.id);
           const merged = communication(remote.communication, local?.communication);
           if (mutation) {
@@ -365,6 +465,7 @@ export function createContactStore({ user, api, onChange } = {}) {
       };
       localRequest.onsuccess = () => { localRows = localRequest.result; merge(); };
       queueRequest.onsuccess = () => { queueRows = queueRequest.result; merge(); };
+      imageRequest.onsuccess = () => { imageRows = imageRequest.result; merge(); };
     }));
   }
 
@@ -532,6 +633,69 @@ export function createContactStore({ user, api, onChange } = {}) {
     }));
   }
 
+  function firstPhotoAction() {
+    return enqueue(() => transaction(db, ['photos', 'queue'], 'readwrite', (tx, done) => {
+      const photoStore = tx.objectStore('photos');
+      const images = photoStore.getAll(), queued = tx.objectStore('queue').getAll();
+      let imageRows, queueRows;
+      const pick = () => {
+        if (!imageRows || !queueRows) return;
+        const blocked = new Set(queueRows.map(item => item.id));
+        const row = imageRows.filter(photo => photo.pending && !blocked.has(photo.contactId))
+          .sort((a, b) => Number(b.pending === 'delete') - Number(a.pending === 'delete') || String(a.queuedAt).localeCompare(String(b.queuedAt)))[0];
+        if (!row) { done(null); return; }
+        if (row.inFlight) { done(row.inFlight); return; }
+        const sent = { photoId: row.id, contactId: row.contactId, kind: row.pending, token: uuid(), ...(row.pending === 'put' ? { blob: row.blob } : {}) };
+        photoStore.put({ ...row, attempted: true, inFlight: sent });
+        done(sent);
+      };
+      images.onsuccess = () => { imageRows = images.result; pick(); };
+      queued.onsuccess = () => { queueRows = queued.result; pick(); };
+    }), { refresh: false });
+  }
+
+  function acceptPhotoAction(sent, response) {
+    if (sent.kind === 'put' && (!response?.photo || response.photo.id !== sent.photoId)) throw new Error('Foto-Upload wurde nicht bestätigt.');
+    if (sent.kind === 'delete' && response?.deletedPhotoId !== sent.photoId) throw new Error('Foto-Löschung wurde nicht bestätigt.');
+    return enqueue(() => transaction(db, ['photos'], 'readwrite', (tx, done) => {
+      const photoStore = tx.objectStore('photos');
+      const request = photoStore.get(sent.photoId);
+      request.onsuccess = () => {
+        const row = request.result;
+        if (!row || row.inFlight?.token !== sent.token) { done(null); return; }
+        if (sent.kind === 'delete') photoStore.put({ id: row.id, contactId: row.contactId, removed: true, pending: null });
+        else photoStore.put({ ...row, ...photoMetadata(response.photo), serverKnown: true, inFlight: null, pending: row.pending === 'delete' ? 'delete' : null });
+        done(null);
+      };
+    }));
+  }
+
+  function rejectPhotoAction(sent) {
+    return enqueue(() => transaction(db, ['photos'], 'readwrite', (tx, done) => {
+      const photoStore = tx.objectStore('photos'), request = photoStore.get(sent.photoId);
+      request.onsuccess = () => {
+        const current = request.result;
+        if (current?.inFlight?.token === sent.token) photoStore.put({ ...current, inFlight: null });
+        done(null);
+      };
+    }));
+  }
+
+  async function forgetGonePhoto(action) {
+    const latest = await api('/api/contacts?scope=mine', { signal: abort.signal });
+    if (closed) return;
+    if (!Array.isArray(latest?.contacts)) throw new Error('Ungültige Kontaktliste vom Server.');
+    await mergeRemote(latest.contacts, latest.deletedIds || []);
+    if (!(latest.contacts || []).some(record => record.id === action.contactId)) {
+      if ((latest.deletedIds || []).includes(action.contactId)) return;
+      throw new Error('Kontakt zum Foto nicht mehr verfügbar.');
+    }
+    return enqueue(() => transaction(db, ['photos'], 'readwrite', (tx, done) => {
+      tx.objectStore('photos').put({ id: action.photoId, contactId: action.contactId, removed: true, pending: null });
+      done(null);
+    }));
+  }
+
   async function performSync() {
     syncing = true;
     error = null;
@@ -572,6 +736,27 @@ export function createContactStore({ user, api, onChange } = {}) {
         }
       }
       while (!closed) {
+        const action = await firstPhotoAction();
+        if (!action || closed) break;
+        try {
+          const path = `/api/contacts/${encodeURIComponent(action.contactId)}/photos/${encodeURIComponent(action.photoId)}`;
+          const response = await api(path, {
+            method: action.kind === 'put' ? 'PUT' : 'DELETE', signal: abort.signal,
+            ...(action.kind === 'put' ? { blob: action.blob } : {})
+          });
+          if (closed) break;
+          await acceptPhotoAction(action, response);
+        } catch (failure) {
+          if (closed) break;
+          if (failure?.status === 410) { await forgetGonePhoto(action); continue; }
+          // A definitive rejection did not acknowledge an upload. Keep its
+          // bytes for retry but let a subsequent removal supersede this PUT.
+          // Network/5xx failures keep inFlight because their ACK is uncertain.
+          if (failure?.status >= 400 && failure.status < 500 && ![408, 429].includes(failure.status)) await rejectPhotoAction(action);
+          throw failure;
+        }
+      }
+      while (!closed) {
         const action = await firstActivity();
         if (!action || closed) break;
         try {
@@ -609,6 +794,7 @@ export function createContactStore({ user, api, onChange } = {}) {
     records = [];
     pending = [];
     activities = [];
+    photos = [];
     syncing = false;
     error = null;
     // Do not close an active local transaction: it must be durable even when
@@ -616,5 +802,5 @@ export function createContactStore({ user, api, onChange } = {}) {
     void Promise.allSettled([work, initPromise || Promise.resolve()]).then(() => db?.close());
   }
 
-  return { init, getState, subscribe, save, remove, recordCommunication, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
+  return { init, getState, subscribe, save, remove, recordCommunication, getPhotos, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
 }

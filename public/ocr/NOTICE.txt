@@ -1,0 +1,21 @@
+BvL Sales: local business-card text recognition
+
+Tesseract.js browser runtime and Tesseract.js-core WebAssembly files were
+copied from the existing BvL_Lead_Generator_v9_1 prototype vendor directory.
+Upstream projects:
+https://github.com/naptha/tesseract.js
+https://github.com/naptha/tesseract.js-core
+The bundled LICENSE and *.LICENSE.txt files preserve their license notices.
+Only the three LSTM runtime variants (plain, SIMD, relaxed SIMD) are needed
+for this app's OCR mode. Their JavaScript files already embed WebAssembly;
+duplicate standalone WASM binaries and the unused Legacy variants are omitted.
+
+German and English LSTM language data come from the official tessdata_fast
+project (retrieved 2026-11-02), compressed with gzip without changing the data:
+https://github.com/tesseract-ocr/tessdata_fast
+https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/deu.traineddata
+https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata
+The Apache-2.0 license is included as lang/LICENSE.
+
+These files are public application assets. They contain no contact photos,
+personal contact data or recognition results. Recognition runs on the device.

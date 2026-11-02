@@ -1,4 +1,5 @@
 import { icon } from './icons.js';
+import { photoEditorHtml, mountPhotoEditor, photoDetailsHtml, mountPhotoDetails } from './contact-photos.js';
 
 export const CONTACTS_ROUTE = '#/contacts';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -137,7 +138,7 @@ function contactForm(l, user) {
   return `<form data-contact-form id="bvl-contact-form">
     <div class="contact-form-layout"><div class="contact-form-main">
       <section class="contact-card contact-context"><div class="contact-card-title"><span class="contact-number">${icon('presentation')}</span><div><h2>${esc(l.context)}</h2><p>${esc(l.contextHint)}</p></div></div><div class="contact-form-grid">${field(l, 'fair', 'text', { required: true, max: 160 })}<label class="field">${esc(l.year)}<input name="fairYear" type="number" min="1900" max="2199" step="1" value="${new Date().getFullYear()}" required></label></div><p class="contact-owner">${icon('user-round')} ${esc(l.seller)}: <strong>${esc(user.displayName)}</strong></p></section>
-      <section class="contact-card"><div class="contact-card-title"><span class="contact-number">01</span><div><h2>${esc(l.person)}</h2><p>${esc(l.personHint)}</p></div></div><div class="contact-form-grid">${field(l, 'name', 'text', { required: true, autocomplete: 'name' })}${field(l, 'company', 'text', { autocomplete: 'organization' })}${field(l, 'email', 'email', { max: 254, inputmode: 'email', autocomplete: 'email', wide: true })}${field(l, 'phone', 'tel', { max: 80, autocomplete: 'tel' })}${field(l, 'mobile', 'tel', { max: 80 })}</div><details class="contact-disclosure"><summary>${esc(l.address)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'street', 'text', { wide: true, max: 200, autocomplete: 'street-address' })}${field(l, 'postalCode', 'text', { max: 30, autocomplete: 'postal-code' })}${field(l, 'city', 'text', { autocomplete: 'address-level2' })}${field(l, 'country', 'text', { autocomplete: 'country-name' })}<label class="field">${esc(l.customerLanguage)}<select name="customerLanguage">${options([['de', 'Deutsch'], ['en', 'English'], ['nl', 'Nederlands'], ['fr', 'Français'], ['pl', 'Polski'], ['da', 'Dansk'], ['sv', 'Svenska']], 'de')}</select></label></div></details></section>
+      <section class="contact-card"><div class="contact-card-title"><span class="contact-number">01</span><div><h2>${esc(l.person)}</h2><p>${esc(l.personHint)}</p></div></div><div class="contact-form-grid">${field(l, 'name', 'text', { required: true, autocomplete: 'name' })}${field(l, 'company', 'text', { autocomplete: 'organization' })}${field(l, 'email', 'email', { max: 254, inputmode: 'email', autocomplete: 'email', wide: true })}${field(l, 'phone', 'tel', { max: 80, autocomplete: 'tel' })}${field(l, 'mobile', 'tel', { max: 80 })}</div>${photoEditorHtml(l === words.en ? 'en' : 'de')}<details class="contact-disclosure"><summary>${esc(l.address)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'street', 'text', { wide: true, max: 200, autocomplete: 'street-address' })}${field(l, 'postalCode', 'text', { max: 30, autocomplete: 'postal-code' })}${field(l, 'city', 'text', { autocomplete: 'address-level2' })}${field(l, 'country', 'text', { autocomplete: 'country-name' })}<label class="field">${esc(l.customerLanguage)}<select name="customerLanguage">${options([['de', 'Deutsch'], ['en', 'English'], ['nl', 'Nederlands'], ['fr', 'Français'], ['pl', 'Polski'], ['da', 'Dansk'], ['sv', 'Svenska']], 'de')}</select></label></div></details></section>
       <section class="contact-card"><div class="contact-card-title"><span class="contact-number">02</span><div><h2>${esc(l.interests)}</h2><p>${esc(l.interestHint)}</p></div></div><div data-contact-interests>${interestHtml({}, l)}</div><button class="button secondary small" type="button" data-contact-action="add-interest">${icon('plus')} ${esc(l.addInterest)}</button><datalist id="contact-machine-types">${['V-MIX Agilo', 'V-MIX Plus', 'V-MIX Giant', 'V-MIX Fill Plus L', 'V-MIX Fill Plus LS pro', 'V-MIX Drive', 'V-MIX Fix', 'V-BIO', 'V-LOAD Cutter', 'V-LOAD Shear', 'V-COMFORT Bedding', 'Dairy Feeder'].map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist><details class="contact-disclosure"><summary>${esc(l.more)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'cows', 'text', { inputmode: 'numeric', max: 40 })}${field(l, 'currentMachine')}${field(l, 'machineYear', 'text', { inputmode: 'numeric', max: 4 })}${field(l, 'volume')}${field(l, 'purchaseTime', 'text', { wide: true })}</div></details></section>
       <section class="contact-card"><div class="contact-card-title"><span class="contact-number">03</span><div><h2>${esc(l.next)}</h2></div></div><fieldset class="contact-request-group"><legend>${esc(l.requests)}</legend>${['visit', 'offer', 'demo', 'service'].map(key => `<label class="contact-request"><input name="requests" type="checkbox" value="${key}"><span>${esc(l[key])}</span></label>`).join('')}</fieldset><div class="contact-form-grid"><label class="field contact-wide">${esc(l.notes)}<textarea name="notes" rows="4" maxlength="5000" placeholder="${esc(l.notesHint)}"></textarea></label>${field(l, 'followUp', 'date', { max: 10 })}<label class="field">${esc(l.priority)}<select name="priority">${options(priorities(l), 'normal')}</select></label><label class="field contact-wide">${esc(l.status)}<select name="status">${options(statuses(l), 'new')}</select></label></div></section>
     </div><aside class="contact-form-aside"><section class="contact-card contact-mail-note">${icon('mail')}<h2>${esc(l.mail)}</h2><p>${esc(l.mailHint)}</p></section></aside></div>
@@ -171,7 +172,7 @@ function detailHtml(record, l, language, user) {
     [l.requests, (d.requests || []).map(key => requestLabels(l)[key] || key).join(', ')],
     [l.cows, d.cows], [l.currentMachine, d.currentMachine], [l.machineYear, d.machineYear], [l.volume, d.volume], [l.purchaseTime, d.purchaseTime], [l.notes, d.notes]
   ].filter(([, value]) => value !== '' && value != null);
-  return `<div class="contact-dialog-head" data-contact-details-id="${esc(record.id)}"><div><p class="eyebrow">${esc(l.contact)}</p><h2>${esc(d.name || d.company)}</h2></div><button class="contact-dialog-close" type="button" data-contact-action="close" aria-label="${esc(l.close)}">×</button></div><dl class="contact-details">${values.map(([caption, value]) => `<div><dt>${esc(caption)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl><div class="contact-dialog-footer">${communicationHtml(record, l, language)}<div class="contact-card-actions">${mailLink(record, user, l, 'button primary')}${forwardLink(record, user, l, language)}${communicationActions(record, l)}${deleteButton(record, l)}</div><p>${esc(l.mailHint)} ${esc(l.communicationHint)}</p></div>`;
+  return `<div class="contact-dialog-head" data-contact-details-id="${esc(record.id)}"><div><p class="eyebrow">${esc(l.contact)}</p><h2>${esc(d.name || d.company)}</h2></div><button class="contact-dialog-close" type="button" data-contact-action="close" aria-label="${esc(l.close)}">×</button></div><dl class="contact-details">${values.map(([caption, value]) => `<div><dt>${esc(caption)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>${photoDetailsHtml(record.photos, language)}<div class="contact-dialog-footer">${communicationHtml(record, l, language)}<div class="contact-card-actions">${mailLink(record, user, l, 'button primary')}${forwardLink(record, user, l, language)}${communicationActions(record, l)}${deleteButton(record, l)}</div><p>${esc(l.mailHint)} ${esc(l.communicationHint)}</p></div>`;
 }
 
 function showDialog(dialog, html) {
@@ -217,7 +218,29 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   const l = labels(language), form = page.querySelector('[data-contact-form]'), dialog = page.querySelector('[data-contact-dialog]');
   let disposed = false, editingId = null, draftTimer, saving = false, latestSaved = null;
   let currentFair = '', query = '', formEdited = false;
+  let detailPhotosCleanup = () => {}, detailSignature = '';
   const ownContacts = () => (store.getState().contacts || []).filter(record => record.ownerId === user.id);
+  const photoEditor = mountPhotoEditor(page.querySelector('[data-contact-photo-editor]'), {
+    language, onChange: changed, getFields: formData,
+    onApply(values) {
+      if (disposed) return;
+      for (const [key, value] of Object.entries(values)) {
+        const input = form.elements.namedItem(key);
+        if (input?.tagName) input.value = value;
+      }
+      if (values.street || values.postalCode || values.city) form.querySelector('details.contact-disclosure').open = true;
+      changed();
+    }
+  });
+  const closeDetailPhotos = () => { detailPhotosCleanup(); detailPhotosCleanup = () => {}; detailSignature = ''; };
+  dialog.addEventListener('close', closeDetailPhotos);
+  function showDetails(record, force = false) {
+    const signature = JSON.stringify([record.id, record.revision, record.communication, record.photos]);
+    if (!force && signature === detailSignature && dialog.open) return;
+    closeDetailPhotos(); detailSignature = signature;
+    showDialog(dialog, detailHtml(record, l, language, user));
+    detailPhotosCleanup = mountPhotoDetails(dialog.querySelector('[data-contact-photo-details]'), { language, loadPhotos: () => store.getPhotos(record.id) });
+  }
   function formData() {
     const values = Object.fromEntries(new FormData(form));
     delete values.requests;
@@ -226,8 +249,9 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     values.interests = [...form.querySelectorAll('[data-contact-interest]')].map(el => Object.fromEntries(['family', 'model', 'variant', 'detail'].map(key => [key, el.querySelector(`[data-interest-field="${key}"]`).value.trim()]))).filter(item => Object.values(item).some(Boolean));
     return values;
   }
-  function fill(data = {}, id = null) {
+  function fill(data = {}, id = null, photos = []) {
     form.reset(); editingId = id; formEdited = false;
+    photoEditor.setPhotos(photos);
     for (const [key, value] of Object.entries(data)) {
       const el = form.elements.namedItem(key);
       if (el?.tagName && !['checkbox', 'file'].includes(el.type)) el.value = value ?? '';
@@ -247,7 +271,7 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   async function persistDraft() {
     clearTimeout(draftTimer);
     try {
-      await store.saveDraft({ data: formData(), editingId });
+      await store.saveDraft({ data: formData(), editingId, photos: photoEditor.getPhotos() });
       if (!disposed) page.querySelector('[data-contact-draft-status]').textContent = l.draftSaved;
     } catch {
       if (!disposed) { page.querySelector('[data-contact-draft-status]').textContent = l.localError; notify(l.localError, true); }
@@ -274,7 +298,7 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     const shownId = dialog.querySelector('[data-contact-details-id]')?.dataset.contactDetailsId;
     if (dialog.open && shownId) {
       const shownRecord = records.find(record => record.id === shownId);
-      if (shownRecord) dialog.innerHTML = detailHtml(shownRecord, l, language, user);
+      if (shownRecord) showDetails(shownRecord);
       else dialog.close();
     }
     if (editingId && !records.some(record => record.id === editingId)) {
@@ -290,6 +314,7 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   }
   async function onSubmit(event) {
     event.preventDefault();
+    if (photoEditor.isBusy()) { notify(photoEditor.waitingMessage, true); return; }
     if (saving || !form.reportValidity()) return;
     saving = true; clearTimeout(draftTimer);
     form.inert = true;
@@ -297,12 +322,12 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     page.querySelector('[data-contact-save-label]').textContent = l.saving;
     const data = formData();
     try {
-      const saved = await store.save(data, editingId || undefined);
+      const saved = await store.save(data, editingId || undefined, photoEditor.getPhotos());
       if (disposed) return;
       latestSaved = saved || ownContacts().find(record => record.id === editingId);
       const context = { fair: data.fair, fairYear: data.fairYear, customerLanguage: data.customerLanguage, country: data.country };
       fill(context);
-      await store.saveDraft({ data: context, editingId: null });
+      await store.saveDraft({ data: context, editingId: null, photos: [] });
       if (disposed) return;
       refresh(); notify(l.saved);
       void store.sync().catch(() => {});
@@ -356,10 +381,15 @@ export function mountContactsPage(container, { language = 'de', user, store, not
     }
     if (action === 'edit' && record) {
       latestSaved = null; page.querySelector('[data-contact-saved]').hidden = true;
-      fill(record.data, record.id); setTab('capture'); await persistDraft();
+      fill(record.data, record.id, record.photos || []); setTab('capture');
+      const version = photoEditor.getVersion();
+      void store.getPhotos(record.id).then(photos => {
+        if (!disposed && editingId === record.id && photoEditor.getVersion() === version) { photoEditor.setPhotos(photos); void persistDraft(); }
+      }).catch(() => {});
+      await persistDraft();
       if (!disposed) form.elements.name.focus();
     }
-    if (action === 'details' && record) showDialog(dialog, detailHtml(record, l, language, user));
+    if (action === 'details' && record) showDetails(record, true);
     if (action === 'conflict') {
       const conflict = (store.getState().conflicts || []).find(item => item.id === id);
       if (!conflict) return;
@@ -384,7 +414,19 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   store.getDraft().then(draft => {
     if (disposed || formEdited || !draft) return;
     if (draft.editingId && !ownContacts().some(record => record.id === draft.editingId)) { void store.clearDraft().catch(() => {}); return; }
-    fill(draft.data || draft, draft.editingId || null);
+    fill(draft.data || draft, draft.editingId || null, draft.photos ?? ownContacts().find(record => record.id === draft.editingId)?.photos ?? []);
+    if (draft.editingId) {
+      const version = photoEditor.getVersion();
+      void store.getPhotos(draft.editingId).then(photos => {
+        if (!disposed && editingId === draft.editingId && photoEditor.getVersion() === version) {
+          const draftPhotos = photoEditor.getPhotos();
+          const loaded = new Map(photos.map(photo => [photo.id, photo]));
+          // A restored draft may have an unsaved removal or new photo. Only
+          // hydrate its current IDs; never re-add an image removed in the draft.
+          photoEditor.setPhotos(draftPhotos.map(photo => photo.blob ? photo : { ...photo, ...loaded.get(photo.id) }));
+        }
+      }).catch(() => {});
+    }
   }).catch(() => {});
   form.addEventListener('submit', onSubmit);
   form.addEventListener('input', changed); form.addEventListener('change', changed);
@@ -395,8 +437,9 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   window.addEventListener('online', onConnectivity); window.addEventListener('offline', onConnectivity);
   return () => {
     clearTimeout(draftTimer);
-    if (formEdited && !saving) void store.saveDraft({ data: formData(), editingId }).catch(() => {});
+    if (formEdited && !saving) void store.saveDraft({ data: formData(), editingId, photos: photoEditor.getPhotos() }).catch(() => {});
     disposed = true; unsubscribe();
+    photoEditor.close(); closeDetailPhotos(); dialog.removeEventListener('close', closeDetailPhotos);
     form.removeEventListener('submit', onSubmit); form.removeEventListener('input', changed); form.removeEventListener('change', changed); page.removeEventListener('click', onClick);
     window.removeEventListener('online', onConnectivity); window.removeEventListener('offline', onConnectivity);
     if (dialog.open) dialog.close();
@@ -413,6 +456,22 @@ export function mountAdminContactsPage(container, { language = 'de', user, api, 
   if (!page || user?.role !== 'admin') return () => {};
   const l = labels(language), filters = page.querySelector('[data-contact-admin-filters]'), dialog = page.querySelector('[data-contact-dialog]');
   let disposed = false, contacts = [], selected = new Set(), timer, sequence = 0, loading = false, exporting = false, exportController = null;
+  let detailPhotosCleanup = () => {}, detailSignature = '';
+  const closeDetailPhotos = () => { detailPhotosCleanup(); detailPhotosCleanup = () => {}; detailSignature = ''; };
+  dialog.addEventListener('close', closeDetailPhotos);
+  function showDetails(record, force = false) {
+    const signature = JSON.stringify([record.id, record.revision, record.communication, record.photos]);
+    if (!force && signature === detailSignature && dialog.open) return;
+    closeDetailPhotos(); detailSignature = signature;
+    showDialog(dialog, detailHtml(record, l, language, user));
+    detailPhotosCleanup = mountPhotoDetails(dialog.querySelector('[data-contact-photo-details]'), {
+      language,
+      loadPhotos: () => Promise.all((record.photos || []).map(async photo => {
+        try { return { ...photo, blob: await api(`/api/contacts/${encodeURIComponent(record.id)}/photos/${encodeURIComponent(photo.id)}`, { responseType: 'blob' }) }; }
+        catch { return { ...photo, loadError: true }; }
+      }))
+    });
+  }
   const query = () => new URLSearchParams([...new FormData(filters)].filter(([, value]) => value !== ''));
   function updateActions() {
     page.querySelector('[data-admin-contact-action="export"]').disabled = loading || exporting || !contacts.length;
@@ -487,7 +546,7 @@ export function mountAdminContactsPage(container, { language = 'de', user, api, 
       sequence++; loading = false;
       contacts = contacts.map(record => record.id === id ? result.contact : record);
       renderResults();
-      if (dialog.open && dialog.querySelector('[data-contact-details-id]')?.dataset.contactDetailsId === id) dialog.innerHTML = detailHtml(result.contact, l, language, user);
+      if (dialog.open && dialog.querySelector('[data-contact-details-id]')?.dataset.contactDetailsId === id) showDetails(result.contact);
       if (state === 'sent') notify(l.communicationSaved);
     } catch (error) { if (!disposed) { button.disabled = false; notify(error.message || l.communicationError, true); } }
   }
@@ -518,11 +577,11 @@ export function mountAdminContactsPage(container, { language = 'de', user, api, 
     if (action === 'reload') void load();
     if (action === 'export') void exportCsv(false);
     if (action === 'export-selected') void exportCsv(true);
-    if (action === 'details') { const record = contacts.find(item => item.id === button.dataset.id); if (record) showDialog(dialog, detailHtml(record, l, language, user)); }
+    if (action === 'details') { const record = contacts.find(item => item.id === button.dataset.id); if (record) showDetails(record, true); }
   }
   const preventSubmit = event => event.preventDefault();
   filters.addEventListener('submit', preventSubmit); filters.addEventListener('input', onInput); filters.addEventListener('change', onInput);
   page.addEventListener('click', onClick); page.addEventListener('change', onChange);
   void load();
-  return () => { disposed = true; sequence++; clearTimeout(timer); exportController?.abort(); filters.removeEventListener('submit', preventSubmit); filters.removeEventListener('input', onInput); filters.removeEventListener('change', onInput); page.removeEventListener('click', onClick); page.removeEventListener('change', onChange); if (dialog.open) dialog.close(); };
+  return () => { disposed = true; sequence++; clearTimeout(timer); exportController?.abort(); closeDetailPhotos(); dialog.removeEventListener('close', closeDetailPhotos); filters.removeEventListener('submit', preventSubmit); filters.removeEventListener('input', onInput); filters.removeEventListener('change', onInput); page.removeEventListener('click', onClick); page.removeEventListener('change', onChange); if (dialog.open) dialog.close(); };
 }

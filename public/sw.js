@@ -1,5 +1,6 @@
-const SHELL_CACHE = 'bvl-sales-shell-v16';
-const SHELL_FILES = ['/', '/index.html', '/styles.css?v=13', '/contacts.css?v=2', '/app.js?v=14', '/contacts.js', '/contact-store.js', '/market.js', '/external-links.js', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const SHELL_CACHE = 'bvl-sales-shell-v18';
+const OCR_CACHE = 'bvl-sales-ocr-v2';
+const SHELL_FILES = ['/', '/index.html', '/styles.css?v=13', '/contacts.css?v=3', '/app.js?v=15', '/contacts.js', '/contact-store.js', '/contact-photos.js', '/market.js', '/external-links.js', '/icons.js', '/bvl-logo.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL_FILES)));
@@ -8,7 +9,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(Promise.all([
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== SHELL_CACHE).map(key => caches.delete(key)))),
+    caches.keys().then(keys => Promise.all(keys.filter(key => key !== SHELL_CACHE && key !== OCR_CACHE).map(key => caches.delete(key)))),
     self.clients.claim()
   ]));
 });
@@ -17,6 +18,23 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) return; // Never cache private API responses.
+  if (url.pathname.startsWith('/ocr/')) {
+    // Public recognition assets are loaded only on request. Private contact
+    // images always use /api/ and never enter this shared resource cache.
+    event.respondWith((async () => {
+      const cache = await caches.open(OCR_CACHE);
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          try { await cache.put(event.request, response.clone()); } catch { /* OCR may still run when the optional cache is full. */ }
+        }
+        return response;
+      } catch { return new Response('Texterkennung bitte zuerst online laden.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+    })());
+    return;
+  }
   event.respondWith(fetch(event.request).catch(async () => {
     const cache = await caches.open(SHELL_CACHE);
     return await cache.match(event.request, { ignoreSearch: true }) || await cache.match('/index.html');

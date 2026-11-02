@@ -99,6 +99,45 @@
 .contact-delete-question strong { display: block; overflow-wrap: anywhere; }
 .contact-delete-question p { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .contact-delete-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 10px 24px 24px; }
+.contact-photo-editor { margin-top: 22px; border: 1px solid var(--line); border-radius: 14px; padding: 15px; background: #f8fafb; }
+.contact-photo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--metal-dark); font-size: 13px; }
+.contact-photo-heading > span { border-radius: 20px; padding: 4px 8px; background: var(--metal-soft); font-size: 10px; font-weight: 700; }
+.contact-photo-editor > p { margin: 8px 0 13px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.contact-photo-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.contact-photo-buttons .button { min-height: 41px; font-size: 11px; }
+.contact-photo-progress.error { color: #a51125; }
+.contact-photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.contact-photo-grid:not(:empty) { margin-top: 14px; }
+.contact-photo-item { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 9px; background: #fff; }
+.contact-photo-preview { display: grid; place-items: center; width: 100%; aspect-ratio: 1.55; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; padding: 4px; background: #edf1f3; cursor: zoom-in; }
+.contact-photo-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.contact-photo-preview > .icon { width: 28px; height: 28px; color: var(--muted); }
+.contact-photo-caption { display: grid; gap: 4px; margin-top: 9px; color: var(--metal-dark); font-size: 11px; }
+.contact-photo-caption small, .contact-photo-item > small { color: var(--muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.contact-photo-item-actions { display: flex; align-items: flex-start; flex-direction: column; gap: 8px; margin: 12px 0 5px; }
+.contact-photo-item-actions .text-button { min-height: 36px; text-align: left; font-size: 11px; }
+.contact-photo-item-actions .text-button:last-child { color: #a51125; }
+.contact-photo-lightbox { width: min(1000px, calc(100% - 24px)); }
+.contact-photo-lightbox > img { display: block; max-width: 100%; max-height: calc(100dvh - 130px); margin: auto; object-fit: contain; }
+.contact-photo-details { margin: 0 22px 20px; border-top: 1px solid var(--line); padding-top: 15px; }
+.contact-photo-details h3 { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; color: var(--metal-dark); font-size: 13px; }
+.contact-photo-details h3 span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.contact-photo-details > p, .contact-photo-unavailable { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.contact-ocr-body { padding: 0 22px 20px; }
+.contact-ocr-body > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.contact-ocr-body > [data-ocr-progress] { border-left: 2px solid var(--red); padding-left: 10px; color: var(--metal-dark); }
+.contact-ocr-body textarea { width: 100%; font-size: 13px; }
+.contact-ocr-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0 22px; }
+.contact-ocr-choice { display: flex; align-items: center; gap: 7px; }
+.contact-ocr-choice input { width: 17px; height: 17px; min-height: 17px; padding: 0; accent-color: var(--metal-dark); }
+@media (max-width: 700px) {
+  .contact-photo-buttons { flex-direction: column; }
+  .contact-photo-buttons .button { justify-content: center; width: 100%; }
+  .contact-ocr-fields { grid-template-columns: minmax(0, 1fr); }
+  .contact-photo-editor { padding: 12px; }
+  .contact-photo-grid { gap: 9px; }
+  .contact-photo-details { margin-right: 18px; margin-left: 18px; }
+}
 .contact-dialog-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--line); padding: 20px 22px 16px; background: #fff; }
 .contact-dialog-head h2 { margin: 0; font-size: 23px; letter-spacing: -.03em; overflow-wrap: anywhere; }
 .contact-dialog-head .eyebrow { margin-top: 0; }

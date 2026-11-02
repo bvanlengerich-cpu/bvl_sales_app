@@ -14,9 +14,7 @@
     "icons:generate": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "sharp": "0.35.4",
     "web-push": "3.6.7"
-  },
-  "devDependencies": {
-    "sharp": "0.35.4"
   }
 }

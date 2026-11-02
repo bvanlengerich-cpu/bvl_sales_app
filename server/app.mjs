@@ -7,10 +7,11 @@ import { audit, publicUser } from './db.mjs';
 import { clearSessionCookie, hashPassword, parseCookies, randomToken, sessionCookie, tokenHash, validPassword, verifyPassword } from './security.mjs';
 import { createMilkFeed, nextMilkRefreshDelay } from './milk.mjs';
 import { registerVisit } from './visits.mjs';
-import { ContactError, adminContacts, contactsCsv, deleteContact, listContacts, listDeletedContactIds, recordContactCommunication, saveContact } from './contacts.mjs';
+import { ContactError, adminContacts, contactsCsv, listContacts, listDeletedContactIds, recordContactCommunication, saveContact } from './contacts.mjs';
+import { createContactPhotos, MAX_PHOTO_REQUEST_BYTES } from './contact-photos.mjs';
 
 export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentation','truck','building-2','images','wrench','file-text','folder-open','link-2','book-open','globe','phone','mail','video','chart-no-axes-combined','package','settings','users']);
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.txt': 'text/plain; charset=utf-8' };
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const PUBLIC_DIR = resolve(import.meta.dirname, '../public');
 const MARKET_ROW_KEYS = ['alt', 'cows', 'excelRow', 'farms', 'name', 'share50', 'sourcePotential', 'state', 'used', 'years'];
@@ -48,6 +49,19 @@ async function body(req, maxBytes = 65536) {
     if (error instanceof HttpError) throw error;
     bad('Ungültiges JSON');
   }
+}
+
+async function photoBody(req) {
+  need(String(req.headers['content-type'] || '').split(';')[0].toLowerCase() === 'image/jpeg', 415, 'Bitte ein JPEG-Foto verwenden.');
+  need(!req.headers['content-length'] || Number(req.headers['content-length']) <= MAX_PHOTO_REQUEST_BYTES, 413, 'Foto zu groß. Bitte zuerst verkleinern.');
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    need(size <= MAX_PHOTO_REQUEST_BYTES, 413, 'Foto zu groß. Bitte zuerst verkleinern.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 function validateMarketRows(rows) {
@@ -157,6 +171,7 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
   const pushEnabled = Boolean(config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY && config.VAPID_SUBJECT);
   if (pushEnabled) pushClient.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
   const marketDataDir = resolve(config.DATA_DIR || './data');
+  const contactPhotos = createContactPhotos({ db, dataDir: marketDataDir });
   const marketDataFile = resolve(marketDataDir, 'market-data.json');
   const bundledMarketDataFile = resolve(import.meta.dirname, 'market-data.json');
   const marketFiles = new Map([
@@ -383,6 +398,21 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       need(user.role === 'admin' || user.role === 'staff');
       return json(res, 200, saveContact(db, user, await body(req, 100000)));
     }
+    const photoAction = pathname.match(/^\/api\/contacts\/([^/]+)\/photos\/([^/]+)$/);
+    if (photoAction) {
+      need(user.role === 'admin' || user.role === 'staff');
+      let contactId, photoId;
+      try { contactId = decodeURIComponent(photoAction[1]); photoId = decodeURIComponent(photoAction[2]); }
+      catch { throw new HttpError(400, 'Ungültige Foto-Adresse'); }
+      if (method === 'GET') {
+        const content = await contactPhotos.get(user, contactId, photoId);
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'Content-Length': content.length });
+        return res.end(content);
+      }
+      if (method === 'PUT') return json(res, 200, await contactPhotos.put(user, contactId, photoId, await photoBody(req)));
+      if (method === 'DELETE') return json(res, 200, await contactPhotos.remove(user, contactId, photoId));
+      throw new HttpError(405, 'Methode nicht erlaubt');
+    }
     const contactAction = pathname.match(/^\/api\/contacts\/([^/]+)(\/communication)?$/);
     let contactActionId;
     if (contactAction) {
@@ -391,7 +421,7 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     }
     if (contactAction && method === 'DELETE' && !contactAction[2]) {
       need(user.role === 'admin' || user.role === 'staff');
-      return json(res, 200, deleteContact(db, user, contactActionId));
+      return json(res, 200, await contactPhotos.removeContact(user, contactActionId));
     }
     if (contactAction && method === 'POST' && contactAction[2]) {
       need(user.role === 'admin' || user.role === 'staff');
@@ -654,7 +684,7 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
     if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     try {
       const pathname = new URL(req.url, origin).pathname;

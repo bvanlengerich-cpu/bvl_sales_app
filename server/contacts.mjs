@@ -92,7 +92,7 @@ export function normalizeContactData(input) {
   return data;
 }
 
-function contactRow(row) {
+export function contactRow(row, db) {
   if (!row) return null;
   return {
     id: row.id,
@@ -101,6 +101,7 @@ function contactRow(row) {
     ownerName: row.owner_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    photos: db ? contactPhotoMetadata(db, row.id) : [],
     communication: {
       thanksOpenedAt: row.thanks_opened_at ?? null,
       thanksSentAt: row.thanks_sent_at ?? null,
@@ -111,12 +112,17 @@ function contactRow(row) {
   };
 }
 
+export function contactPhotoMetadata(db, id) {
+  return db.prepare('SELECT id,bytes,width,height,created_at FROM contact_photos WHERE contact_id=? ORDER BY created_at,id').all(id)
+    .map(row => ({ id: row.id, bytes: row.bytes, width: row.width, height: row.height, createdAt: row.created_at }));
+}
+
 export function listContacts(db, user, scope = null) {
   if (scope !== null && scope !== 'mine') invalid('Ungültiger Kontaktbereich');
   const rows = user.role === 'admin' && scope !== 'mine'
     ? db.prepare('SELECT * FROM contacts ORDER BY updated_at DESC,id').all()
     : db.prepare('SELECT * FROM contacts WHERE owner_id=? ORDER BY updated_at DESC,id').all(user.id);
-  return rows.map(contactRow);
+  return rows.map(row => contactRow(row, db));
 }
 
 export function listDeletedContactIds(db, user, scope = null) {
@@ -131,7 +137,7 @@ function checkContactId(id) {
   if (typeof id !== 'string' || !idPattern.test(id)) invalid('Ungültige Kontakt-ID');
 }
 
-function visibleContact(db, user, id) {
+export function visibleContact(db, user, id) {
   checkContactId(id);
   const tombstone = db.prepare('SELECT owner_id FROM contact_tombstones WHERE id=?').get(id);
   if (tombstone) {
@@ -158,7 +164,7 @@ export function recordContactCommunication(db, user, id, input) {
       : `${opened}=COALESCE(${opened},?)`;
     db.prepare(`UPDATE contacts SET ${assignments} WHERE id=?`)
       .run(...(input.state === 'sent' ? [stamp, stamp, id] : [stamp, id]));
-    const contact = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id));
+    const contact = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id), db);
     db.exec('COMMIT');
     return { contact };
   } catch (error) {
@@ -180,6 +186,9 @@ export function deleteContact(db, user, id) {
       db.prepare('INSERT INTO contact_tombstones (id,owner_id,deleted_at) VALUES (?,?,?)')
         .run(id, existing.owner_id, new Date().toISOString());
       db.prepare("DELETE FROM contact_mutations WHERE json_extract(response_json,'$.contact.id')=?").run(id);
+      const removed = new Date().toISOString();
+      db.prepare('INSERT OR IGNORE INTO contact_photo_tombstones(id,contact_id,deleted_at) SELECT id,contact_id,? FROM contact_photos WHERE contact_id=?').run(removed, id);
+      db.prepare('INSERT OR IGNORE INTO contact_photo_cleanup(id,contact_id,created_at) SELECT id,contact_id,? FROM contact_photos WHERE contact_id=?').run(removed, id);
       db.prepare('DELETE FROM contacts WHERE id=?').run(id);
     }
     db.exec('COMMIT');
@@ -209,25 +218,26 @@ export function saveContact(db, user, input) {
     if (prior) {
       if (prior.request_hash !== requestHash) throw new ContactError(409, 'Änderungs-ID bereits verwendet');
       const response = JSON.parse(prior.response_json);
-      response.contact.communication = contactRow(existing).communication;
+      response.contact.communication = contactRow(existing, db).communication;
+      response.contact.photos = contactPhotoMetadata(db, id);
       db.exec('COMMIT');
       return response;
     }
     if ((existing?.revision || 0) !== baseRevision) {
-      throw new ContactError(409, 'Kontakt wurde zwischenzeitlich geändert', contactRow(existing));
+      throw new ContactError(409, 'Kontakt wurde zwischenzeitlich geändert', contactRow(existing, db));
     }
     const stamp = new Date().toISOString();
     let record;
     if (existing) {
       db.prepare(`UPDATE contacts SET revision=revision+1,updated_at=?,name=?,company=?,email=?,fair=?,fair_year=?,status=?,priority=?,payload=? WHERE id=? AND revision=?`)
         .run(stamp, data.name, data.company, data.email, data.fair, data.fairYear, data.status, data.priority, JSON.stringify(data), id, baseRevision);
-      record = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id));
+      record = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id), db);
     } else {
       db.prepare(`INSERT INTO contacts (id,revision,owner_id,owner_name,created_at,updated_at,name,company,email,fair,fair_year,status,priority,payload)
         VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(id, user.id, user.display_name, stamp, stamp, data.name, data.company, data.email, data.fair, data.fairYear,
           data.status, data.priority, JSON.stringify(data));
-      record = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id));
+      record = contactRow(db.prepare('SELECT * FROM contacts WHERE id=?').get(id), db);
     }
     const response = { contact: record };
     db.prepare('INSERT INTO contact_mutations (actor_id,mutation_id,request_hash,response_json,created_at) VALUES (?,?,?,?,?)')
@@ -279,7 +289,7 @@ export function adminContacts(db, query) {
     values.push(...filters.ids);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
-  const contacts = db.prepare(`SELECT * FROM contacts${where} ORDER BY updated_at DESC,id`).all(...values).map(contactRow);
+  const contacts = db.prepare(`SELECT * FROM contacts${where} ORDER BY updated_at DESC,id`).all(...values).map(row => contactRow(row, db));
   const fairs = db.prepare("SELECT DISTINCT fair,fair_year FROM contacts ORDER BY fair COLLATE NOCASE,fair_year DESC").all()
     .map(row => ({ fair: row.fair, year: row.fair_year }));
   const owners = db.prepare('SELECT DISTINCT owner_id,owner_name FROM contacts ORDER BY owner_name COLLATE NOCASE').all()

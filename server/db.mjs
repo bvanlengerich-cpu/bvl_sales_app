@@ -149,6 +149,27 @@ export function openDatabase(file = process.env.DATABASE_FILE || resolve(process
       owner_id TEXT NOT NULL,
       deleted_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS contact_photos (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      bytes INTEGER NOT NULL CHECK (bytes BETWEEN 1 AND 256000),
+      width INTEGER NOT NULL CHECK (width BETWEEN 1 AND 1600),
+      height INTEGER NOT NULL CHECK (height BETWEEN 1 AND 1600),
+      source_hash TEXT NOT NULL,
+      image_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_contact_photos_contact ON contact_photos(contact_id,created_at,id);
+    CREATE TABLE IF NOT EXISTS contact_photo_tombstones (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS contact_photo_cleanup (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS app_migrations (
       name TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL
