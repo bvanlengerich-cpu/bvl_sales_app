@@ -212,7 +212,7 @@ function adminRow(record, selected, l, language) {
   return `<tr><td><input type="checkbox" data-contact-select="${esc(record.id)}" aria-label="${esc(l.select)}: ${esc(record.data.name || record.data.company)}"${selected.has(record.id) ? ' checked' : ''}></td><td><strong>${esc(record.data.name || record.data.company)}</strong>${record.data.company && record.data.name ? `<small>${esc(record.data.company)}</small>` : ''}<small>${esc(record.data.email || [record.data.postalCode, record.data.city].filter(Boolean).join(' '))}</small></td><td>${esc(record.data.fair)}<small>${esc(record.data.fairYear)}</small></td><td>${esc(record.ownerName)}</td><td><span class="contact-status contact-work-${esc(record.data.status)}">${esc(new Map(statuses(l)).get(record.data.status) || l.statusNew)}</span>${record.data.priority === 'high' ? `<small class="contact-priority-high">${esc(l.high)}</small>` : ''}</td><td>${communicationHtml(record, l, language)}</td><td>${esc(date(record.createdAt, language))}</td><td><div class="contact-table-actions"><button class="button secondary small" type="button" data-admin-contact-action="details" data-id="${esc(record.id)}">${esc(l.details)}</button>${deleteButton(record, l)}</div></td></tr>`;
 }
 
-export function mountContactsPage(container, { language = 'de', user, store, notify = () => {}, isOffline = () => !navigator.onLine } = {}) {
+export function mountContactsPage(container, { language = 'de', user, store, api, recognizePhoto, notify = () => {}, isOffline = () => !navigator.onLine } = {}) {
   const page = container.matches?.('[data-contacts-page]') ? container : container.querySelector('[data-contacts-page]');
   if (!page || !store || !['admin', 'staff'].includes(user?.role)) return () => {};
   const l = labels(language), form = page.querySelector('[data-contact-form]'), dialog = page.querySelector('[data-contact-dialog]');
@@ -222,6 +222,10 @@ export function mountContactsPage(container, { language = 'de', user, store, not
   const ownContacts = () => (store.getState().contacts || []).filter(record => record.ownerId === user.id);
   const photoEditor = mountPhotoEditor(page.querySelector('[data-contact-photo-editor]'), {
     language, onChange: changed, getFields: formData,
+    recognizePhoto: recognizePhoto || ((blob, { signal } = {}) => api('/api/contacts/recognize-card', { method: 'POST', blob, signal })),
+    onRecognitionPending(id, pending) {
+      if (editingId && store.setPhotoRecognitionPending) return store.setPhotoRecognitionPending(id, pending);
+    },
     onApply(values) {
       if (disposed) return;
       for (const [key, value] of Object.entries(values)) {

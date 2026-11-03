@@ -9,6 +9,7 @@ import { createMilkFeed, nextMilkRefreshDelay } from './milk.mjs';
 import { registerVisit } from './visits.mjs';
 import { ContactError, adminContacts, contactsCsv, listContacts, listDeletedContactIds, recordContactCommunication, saveContact } from './contacts.mjs';
 import { createContactPhotos, MAX_PHOTO_REQUEST_BYTES } from './contact-photos.mjs';
+import { BusinessCardOcrError, createBusinessCardRecognizer, validateCardImage } from './business-card-ocr.mjs';
 
 export const ICONS = new Set(['calculator','list-tree','refresh-cw','presentation','truck','building-2','images','wrench','file-text','folder-open','link-2','book-open','globe','phone','mail','video','chart-no-axes-combined','package','settings','users']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.txt': 'text/plain; charset=utf-8' };
@@ -163,7 +164,7 @@ function messageRow(row) {
   };
 }
 
-export function createApp({ db, config = process.env, fetcher = fetch, pushClient = webPush } = {}) {
+export function createApp({ db, config = process.env, fetcher = fetch, pushClient = webPush, cardRecognizer } = {}) {
   if (!db) throw new Error('Database required');
   const origin = new URL(config.PUBLIC_ORIGIN || 'http://localhost:3000').origin;
   const secure = origin.startsWith('https:');
@@ -172,6 +173,10 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
   if (pushEnabled) pushClient.setVapidDetails(config.VAPID_SUBJECT, config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY);
   const marketDataDir = resolve(config.DATA_DIR || './data');
   const contactPhotos = createContactPhotos({ db, dataDir: marketDataDir });
+  const cardOcr = cardRecognizer || createBusinessCardRecognizer({
+    python: config.OCR_PYTHON || process.env.OCR_PYTHON || '/opt/ocr/bin/python',
+    modelsDir: config.OCR_MODEL_DIR || process.env.OCR_MODEL_DIR || '/app/ocr-models'
+  });
   const marketDataFile = resolve(marketDataDir, 'market-data.json');
   const bundledMarketDataFile = resolve(import.meta.dirname, 'market-data.json');
   const marketFiles = new Map([
@@ -388,6 +393,26 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       return marketFile(res, pathname);
     }
 
+    if (pathname === '/api/contacts/recognize-card' && method === 'POST') {
+      need(user.role === 'admin' || user.role === 'staff');
+      const image = await photoBody(req);
+      const controller = new AbortController();
+      const onDisconnect = () => { if (!res.writableEnded) controller.abort(); };
+      req.once('aborted', onDisconnect);
+      res.once('close', onDisconnect);
+      try {
+        await validateCardImage(image);
+        const result = await cardOcr.recognize(image, { signal: controller.signal });
+        if (res.destroyed) return;
+        return json(res, 200, result);
+      } catch (error) {
+        if (error instanceof BusinessCardOcrError) throw new HttpError(error.status, error.message);
+        throw error;
+      } finally {
+        req.removeListener('aborted', onDisconnect);
+        res.removeListener('close', onDisconnect);
+      }
+    }
     if (pathname === '/api/contacts' && method === 'GET') {
       need(user.role === 'admin' || user.role === 'staff');
       const query = new URL(req.url, origin).searchParams;
@@ -684,7 +709,7 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
     if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     try {
       const pathname = new URL(req.url, origin).pathname;
@@ -700,5 +725,6 @@ export function createApp({ db, config = process.env, fetcher = fetch, pushClien
       json(res, error.status || 500, { error: error.status ? error.message : 'Interner Fehler' });
     }
   });
+  server.once('close', () => cardOcr.close?.());
   return { server, milk, refreshMilkAndNotify };
 }

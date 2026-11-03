@@ -8,6 +8,24 @@ const words = {
 };
 const labels = language => words[language === 'en' ? 'en' : 'de'];
 const photoId = () => crypto.randomUUID();
+Object.assign(words.de, {
+  ocrHint: 'Die kostenlose Texterkennung läuft auf dem BvL-Server und benötigt Internet. Prüfen und korrigieren Sie die Vorschläge vor der Übernahme.',
+  ocrLoading: 'Visitenkarte wird auf dem BvL-Server ausgewertet …',
+  ocrProgress: 'Text und Kontaktangaben werden erkannt …',
+  ocrQueued: 'Foto auf diesem Gerät gespeichert. Die Erkennung wartet auf Internet und eine geöffnete Kontakterfassung.',
+  ocrPending: 'Erkennung vorgemerkt',
+  ocrFailed: 'Die Erkennung konnte nicht abgeschlossen werden. Das Foto bleibt erhalten. Bitte bei Internetverbindung erneut versuchen.',
+  ocrWarnings: 'Bitte besonders prüfen'
+});
+Object.assign(words.en, {
+  ocrHint: 'Free text recognition runs on the BvL server and needs internet access. Review and correct the suggestions before applying them.',
+  ocrLoading: 'Reading the business card on the BvL server …',
+  ocrProgress: 'Recognizing text and contact details …',
+  ocrQueued: 'Photo saved on this device. Recognition will resume with an internet connection while contact capture is open.',
+  ocrPending: 'Recognition queued',
+  ocrFailed: 'Recognition could not be completed. Your photo is kept. Please try again with an internet connection.',
+  ocrWarnings: 'Please check carefully'
+});
 
 export function fitPhotoDimensions(width, height, edge = PHOTO_LIMITS.edge) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || !Number.isFinite(edge) || edge < 1) throw new TypeError('Ungültige Bildgröße');
@@ -60,58 +78,40 @@ export async function prepareContactPhoto(file, language = 'de') {
   } finally { image?.close?.(); if (objectUrl) URL.revokeObjectURL(objectUrl); }
 }
 
-export function parseBusinessCardText(rawText) {
-  const text = String(rawText || '').slice(0, 20000);
-  const lines = text.split(/[\r\n]+/).map(line => line.trim()).filter(Boolean).slice(0, 150);
-  const email = text.match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/i)?.[0]?.slice(0, 254) || '';
-  const companyLine = lines.find(line => /\b(?:GmbH|KG|OHG|UG|Ltd\.?|Limited|Inc\.?|B\.?V\.?|S\.?A\.?R\.?L\.?|Firma|Company)\b/i.test(line));
-  const company = companyLine?.replace(/^(?:Firma|Company)\s*:\s*/i, '').slice(0, 200) || '';
-  const address = lines.find(line => /(?:straße|strasse|str\.?|weg|allee|gasse|platz|ring|laan)\s*\d+[a-z]?\b|^\d+\s+.+\b(?:road|street|lane|avenue)\b|\brue\s+.{1,80}\s+\d/i.test(line));
-  const postal = lines.map(line => line.match(/(?:^|\s)(?:[A-Z]{1,3}[-\s])?(\d{4,6})\s+([\p{L}][\p{L}\s.'-]+)$/u)).find(Boolean);
-  const phoneRows = lines.filter(line => /(?:tel(?:efon)?|phone|mobil|mobile|cell|fax)[\s:.]*\+?\d|\+\d[\d\s()/.-]{6,}/i.test(line));
-  const phoneValue = line => (line || '').replace(/^(?:tel(?:efon)?|phone|mobil|mobile|cell|fax)[\s:.]*/i, '').trim().slice(0, 80);
-  const mobileLine = phoneRows.find(line => /mobil|mobile|cell/i.test(line));
-  const phoneLine = phoneRows.find(line => line !== mobileLine && !/fax/i.test(line));
-  const named = lines.find(line => /^(?:Name|Ansprechpartner|Contact)\s*:/i.test(line));
-  const probableName = lines.find(line => line !== companyLine && line !== address && !/[\d@]/.test(line) && !/www\.|https?:|fax|telefon|phone|sales|manager|director|vertrieb|geschäftsführer|engineer|landtechnik|agriculture/i.test(line) && line.split(/\s+/).length >= 2 && line.length <= 100);
-  return Object.fromEntries(Object.entries({
-    name: (named?.replace(/^(?:Name|Ansprechpartner|Contact)\s*:\s*/i, '') || probableName || '').slice(0, 200), company, email,
-    phone: phoneValue(phoneLine), mobile: phoneValue(mobileLine), street: address?.slice(0, 200) || '', postalCode: postal?.[1] || '', city: postal?.[2]?.trim().slice(0, 160) || ''
-  }).filter(([, value]) => value));
+const FIELD_LIMITS = Object.freeze({ name: 200, company: 200, email: 254, phone: 80, mobile: 80, street: 200, postalCode: 30, city: 160 });
+
+export function normalizeBusinessCardRecognition(value) {
+  if (!value || typeof value !== 'object' || !value.fields || typeof value.fields !== 'object' || Array.isArray(value.fields)) throw new Error('Ungültige Antwort der Texterkennung.');
+  const fields = {};
+  for (const [key, raw] of Object.entries(value.fields)) {
+    if (!Object.hasOwn(FIELD_LIMITS, key) || typeof raw !== 'string') continue;
+    const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > FIELD_LIMITS[key]) continue;
+    if (key === 'email' && !/^[^\s@<>?,;]+@[^\s@<>?,;]+\.[^\s@<>?,;]+$/.test(text)) continue;
+    if (['phone', 'mobile'].includes(key) && (!/^\+?[\d\s()./-]+$/.test(text) || text.replace(/\D/g, '').length < 7 || text.replace(/\D/g, '').length > 15)) continue;
+    fields[key] = text;
+  }
+  return {
+    fields,
+    warnings: Array.isArray(value.warnings) ? value.warnings.filter(warning => typeof warning === 'string').slice(0, 20).map(warning => warning.slice(0, 300)) : [],
+    text: typeof value.text === 'string' ? value.text.slice(0, 20000) : '',
+    engine: typeof value.engine === 'string' ? value.engine.slice(0, 100) : ''
+  };
 }
 
-let ocrScript;
-function loadOcr() {
-  if (globalThis.Tesseract) return Promise.resolve(globalThis.Tesseract);
-  if (!ocrScript) ocrScript = new Promise((resolve, reject) => {
-    const script = document.createElement('script'); script.src = '/ocr/tesseract.min.js'; script.async = true;
-    script.onload = () => globalThis.Tesseract ? resolve(globalThis.Tesseract) : reject(new Error('OCR unavailable'));
-    script.onerror = () => { script.remove(); reject(new Error('OCR unavailable')); };
-    document.head.append(script);
-  }).catch(error => { ocrScript = null; throw error; });
-  return ocrScript;
+export async function recognizeBusinessCard(blob, { request, signal, onProgress = () => {} } = {}) {
+  if (!(blob instanceof Blob) || blob.type !== 'image/jpeg' || !blob.size || blob.size > PHOTO_LIMITS.bytes) throw new Error('Bitte ein komprimiertes JPEG-Foto verwenden.');
+  if (typeof request !== 'function') throw new Error('Die Server-Texterkennung ist nicht eingerichtet.');
+  if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError');
+  onProgress({ status: 'recognizing text' });
+  const response = await request(blob, { signal });
+  if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError');
+  return normalizeBusinessCardRecognition(response);
 }
 
-export async function recognizeBusinessCard(blob, { signal, onProgress = () => {} } = {}) {
-  let worker;
-  const aborted = () => { if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError'); };
-  const stop = () => { void worker?.terminate(); };
-  signal?.addEventListener('abort', stop, { once: true });
-  try {
-    aborted();
-    const Tesseract = await loadOcr(); aborted();
-    worker = await Tesseract.createWorker('deu+eng', 1, {
-      workerPath: new URL('/ocr/worker.min.js', location.origin).href,
-      corePath: new URL('/ocr/core/', location.origin).href,
-      langPath: new URL('/ocr/lang/', location.origin).href,
-      workerBlobURL: false, gzip: true, legacyCore: false, legacyLang: false,
-      logger: message => { if (!signal?.aborted) onProgress(message); }
-    });
-    aborted();
-    const result = await worker.recognize(blob); aborted();
-    return String(result.data?.text || '').slice(0, 20000);
-  } catch (error) { aborted(); throw error; }
-  finally { signal?.removeEventListener('abort', stop); await worker?.terminate().catch(() => {}); }
+export function businessCardReviewHtml(result, current = {}, language = 'de') {
+  const l = labels(language), { fields, warnings, text } = normalizeBusinessCardRecognition(result);
+  return `${warnings.length ? `<div class="contact-ocr-warnings"><strong>${esc(l.ocrWarnings)}</strong><ul>${warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></div>` : ''}<label class="field"><span>${esc(l.recognized)}</span><textarea rows="5" readonly>${esc(text)}</textarea></label><div class="contact-ocr-fields">${Object.entries(fields).map(([key, value]) => `<label class="field"><span class="contact-ocr-choice"><input type="checkbox" data-ocr-field="${esc(key)}"${current[key] ? '' : ' checked'}>${esc(l[key])}</span><input data-ocr-value="${esc(key)}" maxlength="${FIELD_LIMITS[key]}" value="${esc(value)}"></label>`).join('')}</div>${Object.keys(fields).length ? `<button class="button primary" type="button" data-ocr-apply>${esc(l.apply)}</button>` : ''}`;
 }
 
 function openPhoto(blobUrl, parent, l) {
@@ -128,10 +128,17 @@ export function photoEditorHtml(language = 'de') {
   return `<div class="contact-photo-editor" data-contact-photo-editor><div class="contact-photo-heading"><strong>${esc(l.title)}</strong><span data-photo-counter>0 / 2</span></div><p>${esc(l.hint)} ${esc(originalHint)}</p><div class="contact-photo-buttons"><button class="button secondary small" type="button" data-photo-action="camera">${icon('images')} ${esc(l.camera)}</button><button class="button secondary small" type="button" data-photo-action="gallery">${icon('plus')} ${esc(l.gallery)}</button></div><input type="file" accept="image/*" capture="environment" data-photo-camera aria-label="${esc(l.camera)}" hidden><input type="file" accept="image/*" data-photo-gallery aria-label="${esc(l.gallery)}" hidden><p class="contact-photo-progress" data-photo-progress role="status" hidden></p><div class="contact-photo-grid" data-photo-list></div></div>`;
 }
 
-export function mountPhotoEditor(host, { language = 'de', onChange = () => {}, onApply = () => {}, getFields = () => ({}) } = {}) {
+export function mountPhotoEditor(host, { language = 'de', recognizePhoto, onRecognitionPending = () => {}, onChange = () => {}, onApply = () => {}, getFields = () => ({}) } = {}) {
   const l = labels(language);
   let photos = [], urls = new Map(), disposed = false, busy = false, version = 0, ocrController, ocrDialog;
   const status = (text, error = false) => { const node = host.querySelector('[data-photo-progress]'); node.hidden = !text; node.textContent = text; node.classList.toggle('error', error); };
+  function markRecognition(photo, pending) {
+    if (!!photo.ocrPending === pending) return;
+    if (pending) photo.ocrPending = true; else delete photo.ocrPending;
+    version++; onChange();
+    try { void Promise.resolve(onRecognitionPending(photo.id, pending)).catch(() => { if (!disposed) status(l.ocrFailed, true); }); }
+    catch { if (!disposed) status(l.ocrFailed, true); }
+  }
   function clearUrls() { for (const url of urls.values()) URL.revokeObjectURL(url); urls.clear(); }
   function render() {
     clearUrls();
@@ -140,7 +147,7 @@ export function mountPhotoEditor(host, { language = 'de', onChange = () => {}, o
     host.querySelector('[data-photo-list]').innerHTML = photos.map((photo, index) => {
       const url = photo.blob instanceof Blob ? URL.createObjectURL(photo.blob) : null;
       if (url) urls.set(photo.id, url);
-      return `<div class="contact-photo-item"><button class="contact-photo-preview" type="button" data-photo-action="view" data-photo-id="${esc(photo.id)}" aria-label="${esc(l.enlarge)} ${index + 1}"${url ? '' : ' disabled'}>${url ? `<img src="${esc(url)}" alt="${esc(l.photo)} ${index + 1}">` : icon('images')}</button><div class="contact-photo-caption"><strong>${esc(index ? l.back : l.front)}</strong><small>${photo.originalBytes ? `${new Intl.NumberFormat(language === 'en' ? 'en-GB' : 'de-DE', { maximumFractionDigits: 1 }).format(photo.originalBytes / 1024 / 1024)} MB → ` : ''}${Math.ceil((photo.bytes || photo.blob?.size || 0) / 1024)} KB · ${esc(l.savedSize)}</small></div><div class="contact-photo-item-actions"><button class="text-button" type="button" data-photo-action="ocr" data-photo-id="${esc(photo.id)}"${!url || busy ? ' disabled' : ''}>${esc(l.scan)}</button><button class="text-button" type="button" data-photo-action="remove" data-photo-id="${esc(photo.id)}"${busy ? ' disabled' : ''}>${esc(l.remove)}</button></div>${!url ? `<small>${esc(l.unavailable)}</small>` : ''}</div>`;
+      return `<div class="contact-photo-item"><button class="contact-photo-preview" type="button" data-photo-action="view" data-photo-id="${esc(photo.id)}" aria-label="${esc(l.enlarge)} ${index + 1}"${url ? '' : ' disabled'}>${url ? `<img src="${esc(url)}" alt="${esc(l.photo)} ${index + 1}">` : icon('images')}</button><div class="contact-photo-caption"><strong>${esc(index ? l.back : l.front)}</strong><small>${photo.originalBytes ? `${new Intl.NumberFormat(language === 'en' ? 'en-GB' : 'de-DE', { maximumFractionDigits: 1 }).format(photo.originalBytes / 1024 / 1024)} MB → ` : ''}${Math.ceil((photo.bytes || photo.blob?.size || 0) / 1024)} KB · ${esc(l.savedSize)}</small>${photo.ocrPending ? `<small class="contact-photo-pending">${esc(l.ocrPending)}</small>` : ''}</div><div class="contact-photo-item-actions"><button class="text-button" type="button" data-photo-action="ocr" data-photo-id="${esc(photo.id)}"${!url || busy ? ' disabled' : ''}>${esc(l.scan)}</button><button class="text-button" type="button" data-photo-action="remove" data-photo-id="${esc(photo.id)}"${busy ? ' disabled' : ''}>${esc(l.remove)}</button></div>${!url ? `<small>${esc(l.unavailable)}</small>` : ''}</div>`;
     }).join('');
   }
   async function select(event) {
@@ -157,18 +164,21 @@ export function mountPhotoEditor(host, { language = 'de', onChange = () => {}, o
     finally { busy = false; if (!disposed) render(); }
   }
   async function scan(photo) {
-    if (!photo?.blob || busy) return;
+    if (!photo?.blob || busy || disposed || ocrDialog?.open) return;
+    if (!photo.ocrPending) { markRecognition(photo, true); render(); }
+    if (globalThis.navigator?.onLine === false) { status(l.ocrQueued); return; }
     ocrController?.abort(); ocrController = new AbortController();
     const controller = ocrController;
     const dialog = document.createElement('dialog'); ocrDialog = dialog;
     dialog.className = 'contact-dialog contact-ocr-dialog';
     dialog.innerHTML = `<div class="contact-dialog-head"><h2>${esc(l.ocrTitle)}</h2><button type="button" class="contact-dialog-close" data-ocr-close aria-label="${esc(l.cancel)}">×</button></div><div class="contact-ocr-body"><p>${esc(l.ocrHint)}</p><p data-ocr-progress role="status">${esc(l.ocrLoading)}</p><div data-ocr-review></div></div><div class="contact-dialog-footer"><button class="button secondary" type="button" data-ocr-close>${esc(l.cancel)}</button></div>`;
     const cleanup = () => { controller.abort(); dialog.remove(); if (ocrDialog === dialog) ocrDialog = null; };
-    dialog.addEventListener('cancel', event => { event.preventDefault(); dialog.close(); });
+    const cancel = () => { controller.abort(); markRecognition(photo, false); render(); dialog.close(); };
+    dialog.addEventListener('cancel', event => { event.preventDefault(); cancel(); });
     dialog.addEventListener('close', cleanup, { once: true });
     dialog.addEventListener('click', event => {
       event.stopPropagation();
-      if (event.target.closest('[data-ocr-close]')) dialog.close();
+      if (event.target.closest('[data-ocr-close]')) cancel();
       if (event.target.closest('[data-ocr-apply]')) {
         const values = {};
         dialog.querySelectorAll('[data-ocr-field]:checked').forEach(check => { values[check.dataset.ocrField] = dialog.querySelector(`[data-ocr-value="${check.dataset.ocrField}"]`).value.trim(); });
@@ -177,15 +187,26 @@ export function mountPhotoEditor(host, { language = 'de', onChange = () => {}, o
     });
     host.append(dialog); dialog.showModal();
     try {
-      const text = await recognizeBusinessCard(photo.blob, { signal: controller.signal, onProgress: message => {
-        if (!disposed && dialog.isConnected) dialog.querySelector('[data-ocr-progress]').textContent = message.status === 'recognizing text' ? `${l.ocrProgress}: ${Math.round((message.progress || 0) * 100)} %` : l.ocrLoading;
+      const result = await recognizeBusinessCard(photo.blob, { request: recognizePhoto, signal: controller.signal, onProgress: () => {
+        if (!disposed && dialog.isConnected) dialog.querySelector('[data-ocr-progress]').textContent = l.ocrProgress;
       } });
-      if (disposed || controller.signal.aborted || !dialog.isConnected) return;
-      const suggestions = parseBusinessCardText(text), current = getFields();
+      if (disposed || controller.signal.aborted || !dialog.isConnected || !photos.includes(photo)) return;
+      markRecognition(photo, false); render();
+      const { fields: suggestions } = result, current = getFields();
       dialog.querySelector('[data-ocr-progress]').textContent = Object.keys(suggestions).length ? l.existing : l.ocrEmpty;
-      dialog.querySelector('[data-ocr-review]').innerHTML = `<label class="field"><span>${esc(l.recognized)}</span><textarea rows="5" readonly>${esc(text)}</textarea></label><div class="contact-ocr-fields">${Object.entries(suggestions).map(([key, value]) => `<label class="field"><span class="contact-ocr-choice"><input type="checkbox" data-ocr-field="${esc(key)}"${current[key] ? '' : ' checked'}>${esc(l[key])}</span><input data-ocr-value="${esc(key)}" maxlength="${key === 'email' ? 254 : ['phone', 'mobile'].includes(key) ? 80 : key === 'postalCode' ? 30 : key === 'city' ? 160 : 200}" value="${esc(value)}"></label>`).join('')}</div>${Object.keys(suggestions).length ? `<button class="button primary" type="button" data-ocr-apply>${esc(l.apply)}</button>` : ''}`;
-    } catch (error) { if (!disposed && !controller.signal.aborted && dialog.isConnected) dialog.querySelector('[data-ocr-progress]').textContent = l.ocrFailed; }
+      dialog.querySelector('[data-ocr-review]').innerHTML = businessCardReviewHtml(result, current, language);
+    } catch (error) {
+      if (!disposed && !controller.signal.aborted && dialog.isConnected) {
+        dialog.querySelector('[data-ocr-progress]').textContent = globalThis.navigator?.onLine === false ? l.ocrQueued : l.ocrFailed;
+      }
+    }
   }
+  function resumePending() {
+    if (disposed || busy || ocrDialog?.open || globalThis.navigator?.onLine === false || document.visibilityState === 'hidden' || host.closest('[hidden]')) return;
+    const pending = photos.find(photo => photo.ocrPending && photo.blob instanceof Blob);
+    if (pending) void scan(pending);
+  }
+  const onVisibility = () => { if (!document.hidden) resumePending(); };
   function onClick(event) {
     const button = event.target.closest('[data-photo-action]'); if (!button || !host.contains(button)) return;
     event.stopPropagation();
@@ -197,12 +218,13 @@ export function mountPhotoEditor(host, { language = 'de', onChange = () => {}, o
     if (action === 'ocr') void scan(photos.find(photo => photo.id === id));
   }
   host.addEventListener('click', onClick); host.querySelectorAll('input[type="file"]').forEach(input => input.addEventListener('change', select));
+  window.addEventListener('online', resumePending); window.addEventListener('focus', resumePending); document.addEventListener('visibilitychange', onVisibility);
   render();
   return {
     getPhotos: () => photos.map(photo => ({ ...photo })), getVersion: () => version,
     isBusy: () => busy, waitingMessage: l.wait,
-    setPhotos(next = []) { version++; photos = next.slice(0, PHOTO_LIMITS.count).map(photo => ({ ...photo })); status(''); render(); },
-    close() { disposed = true; version++; ocrController?.abort(); if (ocrDialog?.open) ocrDialog.close(); host.querySelectorAll('.contact-photo-lightbox').forEach(dialog => { if (dialog.open) dialog.close(); }); clearUrls(); host.removeEventListener('click', onClick); host.querySelectorAll('input[type="file"]').forEach(input => input.removeEventListener('change', select)); }
+    setPhotos(next = []) { ocrController?.abort(); if (ocrDialog?.open) ocrDialog.close(); version++; photos = next.slice(0, PHOTO_LIMITS.count).map(photo => ({ ...photo })); status(photos.some(photo => photo.ocrPending) && globalThis.navigator?.onLine === false ? l.ocrQueued : ''); render(); queueMicrotask(resumePending); },
+    close() { disposed = true; version++; ocrController?.abort(); if (ocrDialog?.open) ocrDialog.close(); host.querySelectorAll('.contact-photo-lightbox').forEach(dialog => { if (dialog.open) dialog.close(); }); clearUrls(); host.removeEventListener('click', onClick); host.querySelectorAll('input[type="file"]').forEach(input => input.removeEventListener('change', select)); window.removeEventListener('online', resumePending); window.removeEventListener('focus', resumePending); document.removeEventListener('visibilitychange', onVisibility); }
   };
 }
 

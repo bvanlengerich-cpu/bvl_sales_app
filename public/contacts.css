@@ -128,6 +128,9 @@
 .contact-ocr-body > [data-ocr-progress] { border-left: 2px solid var(--red); padding-left: 10px; color: var(--metal-dark); }
 .contact-ocr-body textarea { width: 100%; font-size: 13px; }
 .contact-ocr-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0 22px; }
+.contact-ocr-warnings { margin: 14px 0; border-left: 3px solid #b4852a; padding: 11px 13px; background: #fff7e8; color: #78551d; font-size: 12px; line-height: 1.5; }
+.contact-ocr-warnings ul { margin-bottom: 0; padding-left: 18px; }
+.contact-photo-pending { color: #78551d; }
 .contact-ocr-choice { display: flex; align-items: center; gap: 7px; }
 .contact-ocr-choice input { width: 17px; height: 17px; min-height: 17px; padding: 0; accent-color: var(--metal-dark); }
 @media (max-width: 700px) {

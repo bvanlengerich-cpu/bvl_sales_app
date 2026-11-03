@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PHOTO_LIMITS, fitPhotoDimensions, validatePhotoFile, parseBusinessCardText, photoEditorHtml } from '../public/contact-photos.js';
+import { PHOTO_LIMITS, fitPhotoDimensions, validatePhotoFile, normalizeBusinessCardRecognition, recognizeBusinessCard, businessCardReviewHtml, photoEditorHtml } from '../public/contact-photos.js';
 
 test('large camera originals are accepted while final photo dimensions are bounded without upscaling', () => {
   const original = new Blob([new Uint8Array(4 * 1024 * 1024)], { type: 'image/jpeg' });
@@ -15,24 +15,50 @@ test('large camera originals are accepted while final photo dimensions are bound
   assert.equal(validatePhotoFile(new Blob([new Uint8Array(PHOTO_LIMITS.inputBytes + 1)], { type: 'image/jpeg' })), false);
 });
 
-test('German business card suggestions separate fields and retain street names with German suffixes', () => {
-  const text = 'Max Mustermann\nMuster Maschinen GmbH\nVertriebsleiter\nMusterstraße 12a\nD-48488 Emsbüren\nTel.: +49 5903 123456\nMobil: +49 171 1234567\nFax: +49 5903 999999\nmax+messe@example.com\nwww.example.com';
-  assert.deepEqual(parseBusinessCardText(text), {
-    name: 'Max Mustermann', company: 'Muster Maschinen GmbH', email: 'max+messe@example.com',
-    phone: '+49 5903 123456', mobile: '+49 171 1234567', street: 'Musterstraße 12a', postalCode: '48488', city: 'Emsbüren'
-  });
-  assert.equal(parseBusinessCardText(text.replace('Musterstraße 12a', 'Musterstraße12a')).street, 'Musterstraße12a');
-  assert.equal(parseBusinessCardText(text.replace('Musterstraße 12a', 'Hauptstr. 12')).street, 'Hauptstr. 12');
+test('server suggestions accept only contact fields and reject whole phone lines and malformed email addresses', () => {
+  const result = normalizeBusinessCardRecognition({ fields: {
+    name: ' Max\nMustermann ', phone: '+49 5903 123456 Fax +49 5903 999999', mobile: '+49 171 1234567',
+    email: 'max@example.com\r\nBcc:other@example.com', notes: 'Never overwrite existing conversation notes', role: 'admin'
+  }, warnings: ['Mehrere Telefonnummern erkannt; bitte auswählen.'], text: 'Raw text' });
+  assert.deepEqual(result.fields, { name: 'Max Mustermann', mobile: '+49 171 1234567' });
+  assert.equal(result.warnings.length, 1);
+  assert.throws(() => normalizeBusinessCardRecognition({ fields: [] }), /Ungültige Antwort/);
+  assert.throws(() => normalizeBusinessCardRecognition(null), /Ungültige Antwort/);
 });
 
-test('OCR suggestions handle labelled international fields and do not invent absent values', () => {
-  const suggestions = parseBusinessCardText('Company: Example Ltd\nName: Jane Smith\n12 Main Street\n12345 Sample City\nPhone: +1 555 1234567\njane@example.org');
-  assert.equal(suggestions.company, 'Example Ltd');
-  assert.equal(suggestions.name, 'Jane Smith');
-  assert.equal(suggestions.street, '12 Main Street');
-  assert.equal(suggestions.email, 'jane@example.org');
-  assert.equal(suggestions.mobile, undefined);
-  assert.deepEqual(parseBusinessCardText(''), {});
+test('recognition sends the prepared JPEG to the authenticated request adapter and uses structured server fields', async () => {
+  const blob = new Blob(['prepared JPEG'], { type: 'image/jpeg' }), controller = new AbortController();
+  let calls = 0;
+  const result = await recognizeBusinessCard(blob, { signal: controller.signal, request: async (sent, options) => {
+    calls++;
+    assert.equal(sent, blob);
+    assert.equal(options.signal, controller.signal);
+    return { fields: { name: 'Jane Smith', phone: '+1 202 555 0123', email: 'jane@example.org' }, warnings: [], text: 'Tel +1 202 555 0123 | Fax +1 202 555 0999', engine: 'RapidOCR' };
+  } });
+  assert.equal(calls, 1);
+  assert.equal(result.fields.phone, '+1 202 555 0123');
+  assert.equal(result.fields.mobile, undefined);
+  assert.equal(result.engine, 'RapidOCR');
+  assert.doesNotMatch(result.fields.phone, /Fax/);
+});
+
+test('recognition preserves server failures and aborts without a fallback to local text guesses', async () => {
+  const blob = new Blob(['prepared JPEG'], { type: 'image/jpeg' }), failure = Object.assign(new Error('Server offline'), { status: 503 });
+  await assert.rejects(recognizeBusinessCard(blob, { request: async () => { throw failure; } }), error => error === failure);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(recognizeBusinessCard(blob, { signal: controller.signal, request: () => { throw new Error('Must not run'); } }), { name: 'AbortError' });
+  const midFlight = new AbortController();
+  await assert.rejects(recognizeBusinessCard(blob, { signal: midFlight.signal, request: async () => { midFlight.abort(); return { fields: { name: 'Late result' } }; } }), { name: 'AbortError' });
+  await assert.rejects(recognizeBusinessCard(new Blob([new Uint8Array(PHOTO_LIMITS.bytes + 1)], { type: 'image/jpeg' }), { request: () => { throw new Error('Must not run'); } }), /komprimiertes JPEG/);
+});
+
+test('review leaves existing fields unselected and escapes server text and warnings', () => {
+  const html = businessCardReviewHtml({ fields: { name: 'Jane Smith', email: 'jane@example.org' }, warnings: ['<b>check</b>'], text: '<script>alert(1)</script>' }, { name: 'Existing name' }, 'de');
+  assert.match(html, /data-ocr-field="name">/);
+  assert.match(html, /data-ocr-field="email" checked/);
+  assert.match(html, /&lt;b&gt;check&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<script>|<b>check/);
+  assert.match(html, /Ausgewählte Angaben übernehmen/);
 });
 
 test('photo capture presents native camera and gallery choices with automatic final-size guidance', () => {

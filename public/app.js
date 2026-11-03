@@ -489,9 +489,17 @@ function render() {
     ? `<div class="app-shell">${offline}${renderTopbar()}${state.view === 'admin' ? renderAdmin() : state.view === 'category' ? renderCategory() : state.view === 'contacts' ? renderContactsPage(state.language, state.user) : state.view === 'market' ? renderMarketPage(state.language, ['admin', 'staff'].includes(state.user.role)) : state.view === 'messages' ? renderMessages() : state.view === 'profile' ? renderProfile() : renderHome()}${renderBottomNav()}</div>`
     : `${offline}${renderLogin()}`;
   if (state.user && state.view === 'market') mountMarketPage(root, state.language, render);
-  if (state.user && state.view === 'contacts' && contactStore) pageCleanup = mountContactsPage(root, { language: state.language, user: state.user, store: contactStore, api, notify: toast, isOffline: () => state.offlineSession || !state.online });
+  if (state.user && state.view === 'contacts' && contactStore) pageCleanup = mountContactsPage(root, { language: state.language, user: state.user, store: contactStore, api, recognizePhoto: recognizeContactPhoto, notify: toast, isOffline: () => state.offlineSession || !state.online });
   if (state.user?.role === 'admin' && state.view === 'admin' && state.adminTab === 'contacts') pageCleanup = mountAdminContactsPage(root, { language: state.language, user: state.user, api, notify: toast });
   updateConnectionBanner();
+}
+
+async function recognizeContactPhoto(blob, { signal } = {}) {
+  const accountId = state.user?.id;
+  if (!accountId) throw new Error(state.language === 'de' ? 'Bitte erneut anmelden.' : 'Please sign in again.');
+  await resumeConnection();
+  if (signal?.aborted || state.user?.id !== accountId) throw new DOMException('Abgebrochen', 'AbortError');
+  return api('/api/contacts/recognize-card', { method: 'POST', blob, signal });
 }
 
 function readRoute() {

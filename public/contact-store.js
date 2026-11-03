@@ -8,7 +8,7 @@ const uuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.ra
 const communicationFields = ['thanksOpenedAt', 'thanksSentAt', 'forwardOpenedAt', 'forwardedAt'];
 const communication = (...sources) => Object.fromEntries(communicationFields.map(key => [key, sources.map(source => source?.[key]).find(Boolean) || null]));
 const photoIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const photoMetadata = photo => ({ id: photo.id, bytes: photo.bytes || photo.blob?.size || 0, width: photo.width || 0, height: photo.height || 0, createdAt: photo.createdAt || null });
+const photoMetadata = photo => ({ id: photo.id, bytes: photo.bytes || photo.blob?.size || 0, width: photo.width || 0, height: photo.height || 0, createdAt: photo.createdAt || null, ocrPending: photo.ocrPending === true });
 
 function transaction(db, stores, mode, schedule) {
   return new Promise((resolve, reject) => {
@@ -278,7 +278,7 @@ export function createContactStore({ user, api, onChange } = {}) {
                 fail(new Error('Dieses Foto wurde bereits entfernt. Bitte erneut mit neuer Aufnahme hinzufügen.')); return;
               }
               if (!previousPhoto && !photo.blob) { fail(new Error('Bilddatei fehlt. Bitte das Foto erneut hinzufügen.')); return; }
-              const row = previousPhoto || { ...photoMetadata(photo), contactId, blob: photo.blob, createdAt: time, pending: 'put', queuedAt: time, serverKnown: false, inFlight: null };
+              const row = previousPhoto ? { ...previousPhoto, ocrPending: photo.ocrPending === true } : { ...photoMetadata(photo), contactId, blob: photo.blob, createdAt: time, pending: 'put', queuedAt: time, serverKnown: false, inFlight: null };
               if (!row.blob && photo.blob) row.blob = photo.blob;
               imageStore.put(row);
               nextPhotos.push(photoMetadata(row));
@@ -409,6 +409,23 @@ export function createContactStore({ user, api, onChange } = {}) {
     return result;
   }
 
+  function setPhotoRecognitionPending(photoId, pendingRecognition) {
+    if (!photoIdPattern.test(photoId) || typeof pendingRecognition !== 'boolean') return Promise.reject(new TypeError('Ungültiger Texterkennungsstatus.'));
+    return enqueue(() => transaction(db, ['contacts', 'photos'], 'readwrite', (tx, done, fail) => {
+      const photoStore = tx.objectStore('photos'), request = photoStore.get(photoId);
+      request.onsuccess = () => {
+        const photo = request.result;
+        if (!photo || photo.removed || photo.pending === 'delete') { fail(new Error('Foto nicht gefunden oder gelöscht.')); return; }
+        const owner = tx.objectStore('contacts').get(photo.contactId);
+        owner.onsuccess = () => {
+          if (!owner.result || owner.result.deleted || owner.result.ownerId !== userId) { fail(new Error('Foto nicht gefunden oder gelöscht.')); return; }
+          photoStore.put({ ...photo, ocrPending: pendingRecognition });
+          done({ ...photoMetadata(photo), ocrPending: pendingRecognition });
+        };
+      };
+    }), { local: true });
+  }
+
   function mergeRemote(remoteContacts, deletedIds = []) {
     const incoming = remoteContacts.map(normalizeRemote).filter(contact => contact.ownerId === userId);
     const removed = new Set(deletedIds.filter(id => typeof id === 'string'));
@@ -441,7 +458,7 @@ export function createContactStore({ user, api, onChange } = {}) {
           for (const photo of remote.photos) {
             const previousPhoto = localImages.get(photo.id);
             if (previousPhoto?.removed || previousPhoto?.pending) continue;
-            imageStore.put({ ...photo, contactId: remote.id, blob: previousPhoto?.blob, serverKnown: true, pending: null });
+            imageStore.put({ ...photo, contactId: remote.id, blob: previousPhoto?.blob, ocrPending: previousPhoto?.ocrPending === true, serverKnown: true, pending: null });
           }
           for (const photo of localImages.values()) {
             if (!photo.pending && !photo.removed && !remoteImages.has(photo.id)) imageStore.put({ id: photo.id, contactId: remote.id, removed: true, pending: null });
@@ -664,7 +681,7 @@ export function createContactStore({ user, api, onChange } = {}) {
         const row = request.result;
         if (!row || row.inFlight?.token !== sent.token) { done(null); return; }
         if (sent.kind === 'delete') photoStore.put({ id: row.id, contactId: row.contactId, removed: true, pending: null });
-        else photoStore.put({ ...row, ...photoMetadata(response.photo), serverKnown: true, inFlight: null, pending: row.pending === 'delete' ? 'delete' : null });
+        else photoStore.put({ ...row, ...photoMetadata(response.photo), ocrPending: row.ocrPending === true, serverKnown: true, inFlight: null, pending: row.pending === 'delete' ? 'delete' : null });
         done(null);
       };
     }));
@@ -802,5 +819,5 @@ export function createContactStore({ user, api, onChange } = {}) {
     void Promise.allSettled([work, initPromise || Promise.resolve()]).then(() => db?.close());
   }
 
-  return { init, getState, subscribe, save, remove, recordCommunication, getPhotos, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
+  return { init, getState, subscribe, save, remove, recordCommunication, getPhotos, setPhotoRecognitionPending, sync, resolveConflict, saveDraft, getDraft, clearDraft, close };
 }
