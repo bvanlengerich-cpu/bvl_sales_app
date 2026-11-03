@@ -21,7 +21,8 @@ Object.assign(words.de, {
   communicationSaved: 'E-Mail-Aktivität gespeichert.', delete: 'Kontakt löschen', deleted: 'Kontakt gelöscht.',
   deleteQuestion: 'Diesen Kontakt endgültig löschen?', deleteHint: 'Der Kontakt wird für alle Geräte und aus der Admin-Übersicht entfernt.',
   deleteOnline: 'Zum Löschen bitte eine Internetverbindung herstellen.', deleteError: 'Kontakt konnte nicht gelöscht werden.',
-  forwardedBy: 'Weitergeleitet von', contactId: 'Kontakt-ID', cancel: 'Abbrechen'
+  forwardedBy: 'Weitergeleitet von', contactId: 'Kontakt-ID', cancel: 'Abbrechen',
+  otherModel: 'Anderer Maschinentyp …', customModel: 'Maschinentyp eingeben'
 });
 Object.assign(words.en, {
   forward: 'Forward contact', communication: 'Email activity', noCommunication: 'No email activity yet',
@@ -33,7 +34,8 @@ Object.assign(words.en, {
   communicationSaved: 'Email activity saved.', delete: 'Delete contact', deleted: 'Contact deleted.',
   deleteQuestion: 'Permanently delete this contact?', deleteHint: 'The contact will be removed from all devices and the admin overview.',
   deleteOnline: 'Please connect to the internet to delete contacts.', deleteError: 'Contact could not be deleted.',
-  forwardedBy: 'Forwarded by', contactId: 'Contact ID', cancel: 'Cancel'
+  forwardedBy: 'Forwarded by', contactId: 'Contact ID', cancel: 'Cancel',
+  otherModel: 'Other machine type …', customModel: 'Enter machine type'
 });
 const labels = language => words[language === 'en' ? 'en' : 'de'];
 const statuses = l => [['new', l.statusNew], ['in_progress', l.statusProgress], ['done', l.statusDone]];
@@ -124,11 +126,16 @@ function field(l, name, type = 'text', { required = false, max = 160, wide = fal
   return `<label class="field${wide ? ' contact-wide' : ''}"><span>${esc(l[name] || name)}${required ? ' *' : ''}</span><input name="${name}" type="${type}" maxlength="${limit}"${name === 'machineYear' ? ' pattern="(19|20|21)[0-9]{2}"' : ''}${required ? ' required' : ''}${inputmode ? ` inputmode="${inputmode}"` : ''}${autocomplete ? ` autocomplete="${autocomplete}"` : ''}></label>`;
 }
 
+const MACHINE_TYPES = ['V-MIX Agilo', 'V-MIX Plus', 'V-MIX Giant', 'V-MIX Fill Plus L', 'V-MIX Fill Plus LS pro', 'V-MIX Drive', 'V-MIX Fix', 'V-BIO', 'V-LOAD Cutter', 'V-LOAD Shear', 'V-COMFORT Bedding', 'Dairy Feeder'];
+const CUSTOM_MACHINE_TYPE = '__custom__';
+
 function interestHtml(item, l) {
   const families = ['V-MIX', 'V-LOAD', 'V-COMFORT', 'V-CONNECT'];
+  const model = String(item.model || ''), custom = !!model && !MACHINE_TYPES.includes(model);
   return `<div class="contact-interest" data-contact-interest><div class="contact-interest-heading"><strong>${esc(l.interests)}</strong><button class="text-button" type="button" data-contact-action="remove-interest">${esc(l.remove)}</button></div><div class="contact-form-grid">
     <label class="field">${esc(l.family)}<select data-interest-field="family">${options([['', l.choose], ...families.map(x => [x, x])], item.family)}</select></label>
-    <label class="field">${esc(l.model)}<input data-interest-field="model" maxlength="100" list="contact-machine-types" value="${esc(item.model)}"></label>
+    <label class="field">${esc(l.model)}<select data-interest-field="model">${options([['', l.choose], ...MACHINE_TYPES.map(x => [x, x]), [CUSTOM_MACHINE_TYPE, l.otherModel]], custom ? CUSTOM_MACHINE_TYPE : model)}</select></label>
+    <label class="field contact-wide" data-contact-custom-model${custom ? '' : ' hidden'}><span>${esc(l.customModel)}</span><input data-interest-custom-model maxlength="100" value="${esc(custom ? model : '')}"${custom ? '' : ' disabled'}></label>
     <label class="field contact-wide">${esc(l.variant)}<input data-interest-field="variant" maxlength="100" value="${esc(item.variant)}"></label>
     <label class="field contact-wide">${esc(l.detail)}<textarea data-interest-field="detail" maxlength="300" rows="2">${esc(item.detail)}</textarea></label>
   </div></div>`;
@@ -139,7 +146,7 @@ function contactForm(l, user) {
     <div class="contact-form-layout"><div class="contact-form-main">
       <section class="contact-card contact-context"><div class="contact-card-title"><span class="contact-number">${icon('presentation')}</span><div><h2>${esc(l.context)}</h2><p>${esc(l.contextHint)}</p></div></div><div class="contact-form-grid">${field(l, 'fair', 'text', { required: true, max: 160 })}<label class="field">${esc(l.year)}<input name="fairYear" type="number" min="1900" max="2199" step="1" value="${new Date().getFullYear()}" required></label></div><p class="contact-owner">${icon('user-round')} ${esc(l.seller)}: <strong>${esc(user.displayName)}</strong></p></section>
       <section class="contact-card"><div class="contact-card-title"><span class="contact-number">01</span><div><h2>${esc(l.person)}</h2><p>${esc(l.personHint)}</p></div></div><div class="contact-form-grid">${field(l, 'name', 'text', { required: true, autocomplete: 'name' })}${field(l, 'company', 'text', { autocomplete: 'organization' })}${field(l, 'email', 'email', { max: 254, inputmode: 'email', autocomplete: 'email', wide: true })}${field(l, 'phone', 'tel', { max: 80, autocomplete: 'tel' })}${field(l, 'mobile', 'tel', { max: 80 })}</div>${photoEditorHtml(l === words.en ? 'en' : 'de')}<details class="contact-disclosure"><summary>${esc(l.address)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'street', 'text', { wide: true, max: 200, autocomplete: 'street-address' })}${field(l, 'postalCode', 'text', { max: 30, autocomplete: 'postal-code' })}${field(l, 'city', 'text', { autocomplete: 'address-level2' })}${field(l, 'country', 'text', { autocomplete: 'country-name' })}<label class="field">${esc(l.customerLanguage)}<select name="customerLanguage">${options([['de', 'Deutsch'], ['en', 'English'], ['nl', 'Nederlands'], ['fr', 'Français'], ['pl', 'Polski'], ['da', 'Dansk'], ['sv', 'Svenska']], 'de')}</select></label></div></details></section>
-      <section class="contact-card"><div class="contact-card-title"><span class="contact-number">02</span><div><h2>${esc(l.interests)}</h2><p>${esc(l.interestHint)}</p></div></div><div data-contact-interests>${interestHtml({}, l)}</div><button class="button secondary small" type="button" data-contact-action="add-interest">${icon('plus')} ${esc(l.addInterest)}</button><datalist id="contact-machine-types">${['V-MIX Agilo', 'V-MIX Plus', 'V-MIX Giant', 'V-MIX Fill Plus L', 'V-MIX Fill Plus LS pro', 'V-MIX Drive', 'V-MIX Fix', 'V-BIO', 'V-LOAD Cutter', 'V-LOAD Shear', 'V-COMFORT Bedding', 'Dairy Feeder'].map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist><details class="contact-disclosure"><summary>${esc(l.more)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'cows', 'text', { inputmode: 'numeric', max: 40 })}${field(l, 'currentMachine')}${field(l, 'machineYear', 'text', { inputmode: 'numeric', max: 4 })}${field(l, 'volume')}${field(l, 'purchaseTime', 'text', { wide: true })}</div></details></section>
+      <section class="contact-card"><div class="contact-card-title"><span class="contact-number">02</span><div><h2>${esc(l.interests)}</h2><p>${esc(l.interestHint)}</p></div></div><div data-contact-interests>${interestHtml({}, l)}</div><button class="button secondary small" type="button" data-contact-action="add-interest">${icon('plus')} ${esc(l.addInterest)}</button><details class="contact-disclosure"><summary>${esc(l.more)}${icon('chevron-right')}</summary><div class="contact-form-grid">${field(l, 'cows', 'text', { inputmode: 'numeric', max: 40 })}${field(l, 'currentMachine')}${field(l, 'machineYear', 'text', { inputmode: 'numeric', max: 4 })}${field(l, 'volume')}${field(l, 'purchaseTime', 'text', { wide: true })}</div></details></section>
       <section class="contact-card"><div class="contact-card-title"><span class="contact-number">03</span><div><h2>${esc(l.next)}</h2></div></div><fieldset class="contact-request-group"><legend>${esc(l.requests)}</legend>${['visit', 'offer', 'demo', 'service'].map(key => `<label class="contact-request"><input name="requests" type="checkbox" value="${key}"><span>${esc(l[key])}</span></label>`).join('')}</fieldset><div class="contact-form-grid"><label class="field contact-wide">${esc(l.notes)}<textarea name="notes" rows="4" maxlength="5000" placeholder="${esc(l.notesHint)}"></textarea></label>${field(l, 'followUp', 'date', { max: 10 })}<label class="field">${esc(l.priority)}<select name="priority">${options(priorities(l), 'normal')}</select></label><label class="field contact-wide">${esc(l.status)}<select name="status">${options(statuses(l), 'new')}</select></label></div></section>
     </div><aside class="contact-form-aside"><section class="contact-card contact-mail-note">${icon('mail')}<h2>${esc(l.mail)}</h2><p>${esc(l.mailHint)}</p></section></aside></div>
     <div class="contact-savebar"><span data-contact-draft-status>${esc(l.draft)}</span><button class="button primary" type="submit">${icon('check')} <span data-contact-save-label>${esc(l.save)}</span></button></div>
@@ -250,7 +257,11 @@ export function mountContactsPage(container, { language = 'de', user, store, api
     delete values.requests;
     values.fairYear = Number(values.fairYear);
     values.requests = [...form.querySelectorAll('input[name="requests"]:checked')].map(el => el.value);
-    values.interests = [...form.querySelectorAll('[data-contact-interest]')].map(el => Object.fromEntries(['family', 'model', 'variant', 'detail'].map(key => [key, el.querySelector(`[data-interest-field="${key}"]`).value.trim()]))).filter(item => Object.values(item).some(Boolean));
+    values.interests = [...form.querySelectorAll('[data-contact-interest]')].map(el => {
+      const item = Object.fromEntries(['family', 'model', 'variant', 'detail'].map(key => [key, el.querySelector(`[data-interest-field="${key}"]`).value.trim()]));
+      if (item.model === CUSTOM_MACHINE_TYPE) item.model = el.querySelector('[data-interest-custom-model]').value.trim();
+      return item;
+    }).filter(item => Object.values(item).some(Boolean));
     return values;
   }
   function fill(data = {}, id = null, photos = []) {
@@ -281,7 +292,12 @@ export function mountContactsPage(container, { language = 'de', user, store, api
       if (!disposed) { page.querySelector('[data-contact-draft-status]').textContent = l.localError; notify(l.localError, true); }
     }
   }
-  function changed() {
+  function changed(event) {
+    if (event?.target?.matches('[data-interest-field="model"]')) {
+      const row = event.target.closest('[data-contact-interest]'), custom = event.target.value === CUSTOM_MACHINE_TYPE;
+      row.querySelector('[data-contact-custom-model]').hidden = !custom;
+      row.querySelector('[data-interest-custom-model]').disabled = !custom;
+    }
     formEdited = true;
     clearTimeout(draftTimer);
     page.querySelector('[data-contact-draft-status]').textContent = l.draft;
